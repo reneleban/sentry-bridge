@@ -1,0 +1,162 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Janus Stream Test</title>
+    <style>
+      body {
+        font-family: monospace;
+        background: #111;
+        color: #0f0;
+        padding: 20px;
+      }
+      video {
+        width: 640px;
+        height: 360px;
+        background: #000;
+        border: 1px solid #0f0;
+      }
+      button {
+        padding: 10px 20px;
+        margin: 5px;
+        cursor: pointer;
+      }
+      #log {
+        height: 300px;
+        overflow-y: auto;
+        background: #000;
+        padding: 10px;
+        border: 1px solid #333;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Janus Streaming Plugin — Mountpoint 1 Test</h2>
+    <video id="video" autoplay playsinline muted></video>
+    <br />
+    <button onclick="start()">▶ Start Stream</button>
+    <button onclick="stop()">■ Stop</button>
+    <div id="log"></div>
+
+    <script>
+      const JANUS_WS = "ws://localhost:8188";
+      const MOUNTPOINT_ID = 1;
+
+      let ws, sessionId, handleId, pc, keepaliveTimer;
+
+      function log(msg) {
+        const el = document.getElementById("log");
+        el.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+        el.scrollTop = el.scrollHeight;
+      }
+
+      function send(msg) {
+        log("→ " + JSON.stringify(msg).substring(0, 120));
+        ws.send(JSON.stringify(msg));
+      }
+
+      function txid() {
+        return Math.random().toString(36).substring(2, 10);
+      }
+
+      async function start() {
+        log("Connecting to Janus WS...");
+        ws = new WebSocket(JANUS_WS, "janus-protocol");
+
+        ws.onopen = () => {
+          log("WS connected");
+          send({ janus: "create", transaction: txid() });
+        };
+
+        ws.onmessage = async (ev) => {
+          const msg = JSON.parse(ev.data);
+          log("← " + JSON.stringify(msg).substring(0, 200));
+
+          if (msg.janus === "success" && msg.data?.id && !sessionId) {
+            sessionId = msg.data.id;
+            log("Session: " + sessionId);
+            send({
+              janus: "attach",
+              plugin: "janus.plugin.streaming",
+              transaction: txid(),
+              session_id: sessionId,
+            });
+          } else if (
+            msg.janus === "success" &&
+            msg.data?.id &&
+            sessionId &&
+            !handleId
+          ) {
+            handleId = msg.data.id;
+            log("Handle: " + handleId);
+            send({
+              janus: "message",
+              body: { request: "watch", id: MOUNTPOINT_ID },
+              transaction: txid(),
+              session_id: sessionId,
+              handle_id: handleId,
+            });
+          } else if (msg.janus === "event" && msg.jsep) {
+            log("Got SDP offer from Janus — creating answer...");
+            pc = new RTCPeerConnection({ iceServers: [] });
+            pc.ontrack = (e) => {
+              log("Track received: " + e.track.kind);
+              document.getElementById("video").srcObject = e.streams[0];
+            };
+            pc.onicecandidate = (e) => {
+              if (e.candidate) {
+                send({
+                  janus: "trickle",
+                  candidate: e.candidate,
+                  transaction: txid(),
+                  session_id: sessionId,
+                  handle_id: handleId,
+                });
+              }
+            };
+            await pc.setRemoteDescription(msg.jsep);
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            send({
+              janus: "message",
+              body: { request: "start" },
+              jsep: answer,
+              transaction: txid(),
+              session_id: sessionId,
+              handle_id: handleId,
+            });
+          } else if (msg.janus === "keepalive" || msg.janus === "ack") {
+            // ignore
+          }
+        };
+
+        ws.onerror = (e) => log("WS ERROR: " + e);
+        ws.onclose = () => log("WS closed");
+
+        // Keepalive — clear any stale timer from a previous start() call
+        if (keepaliveTimer) clearInterval(keepaliveTimer);
+        keepaliveTimer = setInterval(() => {
+          if (ws?.readyState === WebSocket.OPEN && sessionId) {
+            send({
+              janus: "keepalive",
+              transaction: txid(),
+              session_id: sessionId,
+            });
+          }
+        }, 25000);
+      }
+
+      function stop() {
+        if (keepaliveTimer) {
+          clearInterval(keepaliveTimer);
+          keepaliveTimer = null;
+        }
+        ws?.close();
+        pc?.close();
+        sessionId = null;
+        handleId = null;
+        log("Stopped");
+      }
+    </script>
+  </body>
+</html>
