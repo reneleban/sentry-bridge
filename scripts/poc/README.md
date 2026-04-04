@@ -14,6 +14,7 @@ Run these when Obico API changes or before implementing a new module.
 Each POC requires environment variables. See the script header for details.
 
 ```bash
-# Obico protocol validation
-OBICO_URL=http://192.168.1.x:3334 npm run poc:obico
+cd scripts/poc
+npm install
+OBICO_URL=http://192.168.1.x:3334 npm run obico
 ```
