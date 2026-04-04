@@ -96,12 +96,40 @@ export function createJanusManager(): JanusManager {
     });
   }
 
+  function probeWs(timeoutMs = 2000): Promise<boolean> {
+    return new Promise((resolve) => {
+      const WebSocket = require("ws") as typeof import("ws");
+      const ws = new WebSocket(wsUrl, "janus-protocol");
+      const timer = setTimeout(() => {
+        ws.terminate();
+        resolve(false);
+      }, timeoutMs);
+      ws.once("open", () => {
+        clearTimeout(timer);
+        ws.close();
+        resolve(true);
+      });
+      ws.once("error", () => {
+        clearTimeout(timer);
+        resolve(false);
+      });
+    });
+  }
+
   return {
     get wsUrl() {
       return wsUrl;
     },
 
     async start(): Promise<boolean> {
+      // 1. Check if Janus is already running (Docker sidecar or native)
+      const alreadyRunning = await probeWs();
+      if (alreadyRunning) {
+        console.log("[janus] Already running on", wsUrl, "(sidecar/external)");
+        return true;
+      }
+
+      // 2. Try to spawn local binary
       const binary = findJanusBinary();
       if (!binary) {
         console.log(
