@@ -10,9 +10,9 @@ services:
     image: canyan/janus-gateway:latest
     network_mode: host
     volumes:
-      - ./config/janus/janus.jcfg:/etc/janus/janus.jcfg:ro
-      - ./config/janus/janus.plugin.streaming.jcfg:/etc/janus/janus.plugin.streaming.jcfg:ro
-      - ./config/janus/janus.transport.websockets.jcfg:/etc/janus/janus.transport.websockets.jcfg:ro
+      - ./config/janus/janus.jcfg:/usr/local/etc/janus/janus.jcfg:ro
+      - ./config/janus/janus.plugin.streaming.jcfg:/usr/local/etc/janus/janus.plugin.streaming.jcfg:ro
+      - ./config/janus/janus.transport.websockets.jcfg:/usr/local/etc/janus/janus.transport.websockets.jcfg:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8088/janus/info"]
