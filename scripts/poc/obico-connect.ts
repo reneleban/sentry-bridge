@@ -42,12 +42,14 @@ function prompt(question: string): Promise<string> {
 }
 
 async function verifyCode(code: string): Promise<string> {
-  console.log(`  POSTing to ${OBICO_URL}/api/v1/octo/verify/`);
-  const res = await fetch(`${OBICO_URL}/api/v1/octo/verify/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code }),
-  });
+  console.log(`  POSTing to ${OBICO_URL}/api/v1/octo/verify/?code=${code}`);
+  const res = await fetch(
+    `${OBICO_URL}/api/v1/octo/verify/?code=${encodeURIComponent(code)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    }
+  );
 
   const text = await res.text();
   console.log(`  Response status: ${res.status}`);
@@ -57,11 +59,15 @@ async function verifyCode(code: string): Promise<string> {
     throw new Error(`Verification failed (${res.status}): ${text}`);
   }
 
-  const body = JSON.parse(text) as { auth_token?: string };
-  if (!body.auth_token) {
+  const body = JSON.parse(text) as {
+    auth_token?: string;
+    printer?: { auth_token?: string };
+  };
+  const token = body.auth_token ?? body.printer?.auth_token;
+  if (!token) {
     throw new Error(`No auth_token in response: ${text}`);
   }
-  return body.auth_token;
+  return token;
 }
 
 async function connectAndSendStatus(apiKey: string): Promise<void> {

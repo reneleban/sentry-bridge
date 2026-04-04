@@ -77,14 +77,20 @@ User is shown this code and enters it in the Obico web UI.
 **Step 3 — Verify code and obtain API key:**
 
 ```
-POST /api/v1/octo/verify/
-Body: { code }
-Response: { auth_token: "<20-char-hex>" }
+POST /api/v1/octo/verify/?code=<code>
+Body: (empty)
+Response: {
+  "printer": { "auth_token": "<20-char-hex>", "id": 3, "name": "...", ... },
+  "code": "116768",
+  "expired_at": "...",
+  "verified_at": "..."
+}
 ```
 
+⚠️ The code is passed as a **query parameter**, not in the JSON body.  
+The `auth_token` is nested under `printer.auth_token`.  
 On success, the server creates/updates a `Printer` record and returns the `auth_token`.  
-The agent stores this token in config — it is used for all future WebSocket connections.  
-The code expires 60 seconds after verification.
+The agent stores this token in config — it is used for all future WebSocket connections.
 
 **Source files:**
 
