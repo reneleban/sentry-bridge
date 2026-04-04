@@ -20,7 +20,7 @@ FROM node:20-alpine AS runtime
 RUN apk add --no-cache ffmpeg
 WORKDIR /app
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN npm install --omit=dev --ignore-scripts
 COPY --from=backend-build /app/dist ./dist
 COPY --from=frontend-build /app/frontend/dist ./public
 EXPOSE 3000
