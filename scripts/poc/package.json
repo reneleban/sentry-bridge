@@ -1,0 +1,17 @@
+{
+  "name": "obico-prusalink-bridge-poc",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "obico": "ts-node obico-connect.ts"
+  },
+  "dependencies": {
+    "ws": "^8.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/ws": "^8.18.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  }
+}

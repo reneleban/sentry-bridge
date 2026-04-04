@@ -73,6 +73,10 @@ npm run build:all            # both sequentially (used in Docker)
 npm run start:backend        # run compiled Express server
 npm run start:all            # build:all + start:backend
 
+# POC validation — self-contained, run from scripts/poc/
+# cd scripts/poc && npm install
+OBICO_URL=http://192.168.1.x:3334 npm run obico       # validate Obico agent protocol
+
 # Docker
 npm run build:docker               # build image locally (single platform)
 npm run build:docker:multiplatform # build for amd64 + arm64 (requires buildx)
