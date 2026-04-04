@@ -91,6 +91,23 @@ describe("createJanusRelay()", () => {
     }, 100);
   });
 
+  it("connects to Obico WS with janus-protocol subprotocol", (done) => {
+    const relay = createJanusRelay(
+      `ws://127.0.0.1:${janusPort}`,
+      `http://127.0.0.1:${obicoPort}`,
+      99,
+      "key"
+    );
+
+    obicoWss.on("connection", (_ws, req) => {
+      expect(req.headers["sec-websocket-protocol"]).toBe("janus-protocol");
+      relay.stop();
+      done();
+    });
+
+    relay.start();
+  });
+
   it("uses auth token in Obico WS URL path (not Authorization header)", (done) => {
     const relay = createJanusRelay(
       `ws://127.0.0.1:${janusPort}`,

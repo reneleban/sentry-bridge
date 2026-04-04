@@ -109,6 +109,7 @@ export async function startBridge(port = 3000): Promise<void> {
   // Send status immediately when WS opens, then keep polling
   const intervalMs = config.polling?.statusIntervalMs ?? 5000;
   agent.connect(async () => {
+    await agent.updateAgentInfo();
     await startJanus();
     pollAndSend();
   });

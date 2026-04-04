@@ -34,7 +34,7 @@ export function createJanusRelay(
     if (stopped) return;
 
     janusWs = new WebSocket(janusWsUrl, "janus-protocol");
-    obicoWs = new WebSocket(obicoUrl);
+    obicoWs = new WebSocket(obicoUrl, "janus-protocol");
 
     janusWs.on("open", () => console.log("[janus-relay] Janus WS open"));
     obicoWs.on("open", () => console.log("[janus-relay] Obico WS open"));
