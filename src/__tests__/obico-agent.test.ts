@@ -71,7 +71,7 @@ describe("buildStatusMessage()", () => {
     expect(msg.status.state.text).toBe("Operational");
     expect(msg.status.state.flags.ready).toBe(true);
     expect(msg.status.state.flags.printing).toBe(false);
-    expect(msg.current_print_ts).toBeNull();
+    expect(msg.current_print_ts).toBe(-1);
     expect(msg.status.job.file.name).toBeNull();
   });
 
@@ -173,7 +173,7 @@ describe("waitForPairing()", () => {
 // ──────────────────────────────────────────────────────────────────────────────
 
 describe("sendFrame()", () => {
-  it("POSTs base64 JPEG to /api/v1/octo/pic/", async () => {
+  it("POSTs binary JPEG to /api/v1/octo/pic/ with Token auth", async () => {
     mockFetch.mockResolvedValue(mockResponse(200));
     const agent = createObicoAgent(
       { serverUrl: "http://obico.local", apiKey: "test-key" },
@@ -184,11 +184,14 @@ describe("sendFrame()", () => {
     await agent.sendFrame(jpeg);
     expect(mockFetch).toHaveBeenCalledWith(
       "http://obico.local/api/v1/octo/pic/",
-      expect.objectContaining({ method: "POST" })
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ Authorization: "Token test-key" }),
+      })
     );
     const callArgs = mockFetch.mock.calls[0][1];
     const body = callArgs.body as FormData;
-    expect(body.get("img")).toBe(jpeg.toString("base64"));
+    expect(body.get("pic")).not.toBeNull();
   });
 });
 

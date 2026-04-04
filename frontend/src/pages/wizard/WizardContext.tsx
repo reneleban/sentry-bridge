@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 
 export interface WizardData {
   printerIp: string;
@@ -19,16 +19,36 @@ interface WizardContextValue {
 
 const WizardContext = createContext<WizardContextValue | null>(null);
 
+const EMPTY: WizardData = {
+  printerIp: "",
+  rtspUrl: "",
+  username: "maker",
+  password: "",
+  obicoServerUrl: "",
+  obicoApiKey: "",
+};
+
 export function WizardProvider({ children }: { children: React.ReactNode }) {
   const [step, setStep] = useState(0);
-  const [data, setDataState] = useState<WizardData>({
-    printerIp: "",
-    rtspUrl: "",
-    username: "maker",
-    password: "",
-    obicoServerUrl: "",
-    obicoApiKey: "",
-  });
+  const [data, setDataState] = useState<WizardData>(EMPTY);
+
+  // Pre-fill from existing config if available
+  useEffect(() => {
+    fetch("/api/config")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((cfg) => {
+        if (!cfg) return;
+        setDataState({
+          printerIp: cfg.prusalink?.url?.replace(/^https?:\/\//, "") ?? "",
+          rtspUrl: cfg.camera?.rtspUrl ?? "",
+          username: cfg.prusalink?.username ?? "maker",
+          password: cfg.prusalink?.password ?? "",
+          obicoServerUrl: cfg.obico?.serverUrl ?? "",
+          obicoApiKey: cfg.obico?.apiKey ?? "",
+        });
+      })
+      .catch(() => {});
+  }, []);
 
   function setData(patch: Partial<WizardData>) {
     setDataState((prev) => ({ ...prev, ...patch }));
