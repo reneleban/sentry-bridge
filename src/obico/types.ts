@@ -19,8 +19,14 @@ export interface PrinterStatusMessage {
         operational: boolean;
         paused: boolean;
         printing: boolean;
+        cancelling: boolean;
+        pausing: boolean;
+        resuming: boolean;
+        finishing: boolean;
+        closedOrError: boolean;
         error: boolean;
         ready: boolean;
+        sdReady: boolean;
       };
       error: string | null;
     };
@@ -53,7 +59,7 @@ export interface PrusaLinkCommandDispatcher {
 }
 
 export interface ObicoAgent {
-  connect(): void;
+  connect(onOpen?: () => void): void;
   disconnect(): void;
   startPairing(serverUrl: string): Promise<string>;
   waitForPairing(serverUrl: string, code: string): Promise<string>;
@@ -72,7 +78,7 @@ export function buildStatusMessage(
   const isReady = status.state === "IDLE";
 
   return {
-    current_print_ts: isPrinting ? now : null,
+    current_print_ts: isPrinting ? now : -1,
     status: {
       _ts: now,
       state: {
@@ -81,8 +87,14 @@ export function buildStatusMessage(
           operational: !isError,
           paused: isPaused,
           printing: isPrinting,
+          cancelling: false,
+          pausing: false,
+          resuming: false,
+          finishing: false,
+          closedOrError: isError,
           error: isError,
           ready: isReady,
+          sdReady: true,
         },
         error: isError ? "Printer error" : null,
       },
