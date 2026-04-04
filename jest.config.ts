@@ -6,6 +6,9 @@ const config: Config = {
   roots: ["<rootDir>/src"],
   testMatch: ["**/__tests__/**/*.test.ts"],
   collectCoverageFrom: ["src/**/*.ts", "!src/__tests__/**"],
+  moduleNameMapper: {
+    "^digest-fetch$": "<rootDir>/src/__mocks__/digest-fetch.ts",
+  },
   reporters: [
     "default",
     [
