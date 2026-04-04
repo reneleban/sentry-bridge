@@ -1,0 +1,123 @@
+import { PrinterStatus, JobInfo } from "../prusalink/types";
+
+export interface ObicoAgentConfig {
+  serverUrl: string;
+  apiKey: string;
+}
+
+export interface HttpFetcher {
+  fetch(url: string, options?: RequestInit): Promise<Response>;
+}
+
+export interface PrinterStatusMessage {
+  current_print_ts: number | null;
+  status: {
+    _ts: number;
+    state: {
+      text: string;
+      flags: {
+        operational: boolean;
+        paused: boolean;
+        printing: boolean;
+        error: boolean;
+        ready: boolean;
+      };
+      error: string | null;
+    };
+    job: {
+      file: {
+        name: string | null;
+        path: string | null;
+        obico_g_code_file_id: null;
+      };
+    };
+    progress: {
+      completion: number | null;
+      filepos: number | null;
+      printTime: number | null;
+      printTimeLeft: number | null;
+      filamentUsed: number | null;
+    };
+    temperatures: {
+      tool0: { actual: number; target: number };
+      bed: { actual: number; target: number };
+    };
+  };
+  event?: { event_type: string };
+}
+
+export interface PrusaLinkCommandDispatcher {
+  pause(): Promise<void>;
+  resume(): Promise<void>;
+  cancel(): Promise<void>;
+}
+
+export interface ObicoAgent {
+  connect(): void;
+  disconnect(): void;
+  startPairing(serverUrl: string): Promise<string>;
+  waitForPairing(serverUrl: string, code: string): Promise<string>;
+  sendStatus(status: PrinterStatus, job: JobInfo | null): void;
+  sendFrame(jpeg: Buffer): Promise<void>;
+}
+
+export function buildStatusMessage(
+  status: PrinterStatus,
+  job: JobInfo | null
+): PrinterStatusMessage {
+  const now = Math.floor(Date.now() / 1000);
+  const isPrinting = status.state === "PRINTING";
+  const isPaused = status.state === "PAUSED";
+  const isError = status.state === "ERROR";
+  const isReady = status.state === "IDLE";
+
+  return {
+    current_print_ts: isPrinting ? now : null,
+    status: {
+      _ts: now,
+      state: {
+        text: toStateText(status.state),
+        flags: {
+          operational: !isError,
+          paused: isPaused,
+          printing: isPrinting,
+          error: isError,
+          ready: isReady,
+        },
+        error: isError ? "Printer error" : null,
+      },
+      job: {
+        file: {
+          name: job?.fileName ?? null,
+          path: job ? `/usb/${job.fileName}` : null,
+          obico_g_code_file_id: null,
+        },
+      },
+      progress: {
+        completion: job?.progress ?? null,
+        filepos: null,
+        printTime: job?.timePrinting ?? null,
+        printTimeLeft: job?.timeRemaining ?? null,
+        filamentUsed: null,
+      },
+      temperatures: {
+        tool0: { actual: status.tempNozzle, target: status.targetNozzle },
+        bed: { actual: status.tempBed, target: status.targetBed },
+      },
+    },
+  };
+}
+
+function toStateText(state: PrinterStatus["state"]): string {
+  const map: Record<PrinterStatus["state"], string> = {
+    IDLE: "Operational",
+    BUSY: "Busy",
+    PRINTING: "Printing",
+    PAUSED: "Paused",
+    FINISHED: "Operational",
+    STOPPED: "Operational",
+    ERROR: "Error",
+    ATTENTION: "Attention",
+  };
+  return map[state];
+}
