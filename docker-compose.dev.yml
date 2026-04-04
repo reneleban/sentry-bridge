@@ -8,7 +8,9 @@ version: "3.9"
 services:
   janus:
     image: canyan/janus-gateway:latest
-    network_mode: host
+    ports:
+      - "8188:8188" # Janus WebSocket (bridge → Janus signaling)
+      - "17732:17732/udp" # RTP video from ffmpeg
     volumes:
       - ./config/janus/janus.jcfg:/usr/local/etc/janus/janus.jcfg:ro
       - ./config/janus/janus.plugin.streaming.jcfg:/usr/local/etc/janus/janus.plugin.streaming.jcfg:ro
