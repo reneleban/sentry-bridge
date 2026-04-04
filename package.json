@@ -5,9 +5,9 @@
   "main": "dist/index.js",
   "scripts": {
     "install:all": "npm install && cd frontend && npm install",
-    "dev:backend": "nodemon --exec ts-node src/index.ts",
+    "dev:backend": "CONFIG_PATH=./config/config.json nodemon --exec ts-node src/index.ts",
     "dev:frontend": "cd frontend && npm run dev",
-    "dev:all": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:all": "concurrently \"npm run dev:backend\" \"npm run dev:frontend:proxy\"",
     "dev:frontend:proxy": "cd frontend && npm run dev:proxy",
     "build:backend": "tsc",
     "build:frontend": "cd frontend && npm run build",

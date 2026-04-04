@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import { wizardRouter } from "./routes/wizard";
+import { dashboardRouter } from "./routes/dashboard";
 
 export const app = express();
 
@@ -11,6 +12,7 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use("/api/wizard", wizardRouter);
+app.use("/api", dashboardRouter);
 
 const publicDir = path.join(__dirname, "..", "public");
 app.use(express.static(publicDir));
