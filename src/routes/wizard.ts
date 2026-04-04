@@ -4,9 +4,6 @@ import { createCamera } from "../camera/camera";
 
 const router = Router();
 
-// In-memory pairing state (wizard is single-user, single-session)
-let pairingState: { serverUrl: string; code: string } | null = null;
-
 router.post("/test-prusalink", async (req, res) => {
   const { url, username, password } = req.body as {
     url?: string;
@@ -49,77 +46,47 @@ router.post("/test-camera", async (req, res) => {
   }
 });
 
-router.post("/start-pairing", async (req, res) => {
-  const { obicoServerUrl } = req.body as { obicoServerUrl?: string };
+router.post("/verify-pairing", async (req, res) => {
+  const { obicoServerUrl, code } = req.body as {
+    obicoServerUrl?: string;
+    code?: string;
+  };
 
-  if (!obicoServerUrl) {
-    res.status(400).json({ message: "obicoServerUrl is required" });
+  if (!obicoServerUrl || !code) {
+    res.status(400).json({ message: "obicoServerUrl and code are required" });
     return;
   }
 
   try {
-    const response = await fetch(
-      `${obicoServerUrl.replace(/\/$/, "")}/api/v1/octo/verify/`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      }
-    );
+    const url = `${obicoServerUrl.replace(/\/$/, "")}/api/v1/octo/verify/?code=${encodeURIComponent(code)}`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+
     if (!response.ok) {
+      const text = await response.text();
       res
         .status(502)
-        .json({ message: `Obico server error: ${response.status}` });
+        .json({ message: `Verification failed (${response.status}): ${text}` });
       return;
     }
-    const body = (await response.json()) as { code: string };
-    pairingState = {
-      serverUrl: obicoServerUrl.replace(/\/$/, ""),
-      code: body.code,
+
+    const body = (await response.json()) as {
+      auth_token?: string;
+      printer?: { auth_token?: string };
     };
-    res.json({ pairingCode: body.code });
+
+    const apiKey = body.auth_token ?? body.printer?.auth_token;
+    if (!apiKey) {
+      res.status(502).json({ message: "No auth_token in response" });
+      return;
+    }
+
+    res.json({ apiKey, serverUrl: obicoServerUrl });
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Failed to reach Obico server";
-    res.status(502).json({ message });
-  }
-});
-
-router.get("/pairing-status", async (_req, res) => {
-  if (!pairingState) {
-    res.status(400).json({ message: "No active pairing session" });
-    return;
-  }
-
-  const { serverUrl, code } = pairingState;
-
-  try {
-    const response = await fetch(
-      `${serverUrl}/api/v1/octo/verify/?code=${code}`,
-      { method: "POST" }
-    );
-
-    if (response.status === 410) {
-      pairingState = null;
-      res.status(410).json({ message: "Pairing code expired" });
-      return;
-    }
-
-    if (response.ok) {
-      const body = (await response.json()) as {
-        verified_at?: string;
-        printer?: { auth_token: string };
-      };
-      if (body.verified_at && body.printer?.auth_token) {
-        pairingState = null;
-        res.json({ paired: true, apiKey: body.printer.auth_token, serverUrl });
-        return;
-      }
-    }
-
-    res.json({ paired: false });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Check failed";
     res.status(502).json({ message });
   }
 });

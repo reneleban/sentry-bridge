@@ -1,11 +1,12 @@
 import { createContext, useContext, useState } from "react";
 
 export interface WizardData {
-  prusaLinkUrl: string;
+  printerIp: string;
+  rtspUrl: string;
   username: string;
   password: string;
-  rtspUrl: string;
   obicoServerUrl: string;
+  obicoApiKey: string;
 }
 
 interface WizardContextValue {
@@ -21,11 +22,12 @@ const WizardContext = createContext<WizardContextValue | null>(null);
 export function WizardProvider({ children }: { children: React.ReactNode }) {
   const [step, setStep] = useState(0);
   const [data, setDataState] = useState<WizardData>({
-    prusaLinkUrl: "",
+    printerIp: "",
+    rtspUrl: "",
     username: "maker",
     password: "",
-    rtspUrl: "",
     obicoServerUrl: "",
+    obicoApiKey: "",
   });
 
   function setData(patch: Partial<WizardData>) {
