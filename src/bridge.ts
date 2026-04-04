@@ -4,6 +4,8 @@ import { createCamera } from "./camera/camera";
 import { setCameraInstance } from "./camera/registry";
 import { createObicoAgent } from "./obico/agent";
 import { HttpFetcher } from "./obico/types";
+import { createJanusManager } from "./janus/manager";
+import { createJanusRelay } from "./janus/relay";
 
 const httpFetcher: HttpFetcher = { fetch: (url, opts) => fetch(url, opts) };
 
@@ -75,9 +77,41 @@ export async function startBridge(port = 3000): Promise<void> {
     }
   }
 
+  // Janus WebRTC — start if available, fall back to MJPEG-only gracefully
+  const RTP_PORT = 17732;
+  const janusManager = createJanusManager();
+  let janusRelay: ReturnType<typeof createJanusRelay> | null = null;
+
+  async function startJanus(): Promise<void> {
+    const available = await janusManager.start();
+    if (!available) return;
+
+    camera.startRtpStream(RTP_PORT);
+
+    const printerId = await agent.fetchPrinterId();
+    if (!printerId) {
+      console.warn(
+        "[bridge] Could not fetch printer ID — Janus relay not started"
+      );
+      return;
+    }
+
+    janusRelay = createJanusRelay(
+      janusManager.wsUrl,
+      config.obico.serverUrl,
+      printerId,
+      config.obico.apiKey
+    );
+    janusRelay.start();
+    console.log(`[bridge] Janus relay active for printer ${printerId}`);
+  }
+
   // Send status immediately when WS opens, then keep polling
   const intervalMs = config.polling?.statusIntervalMs ?? 5000;
-  agent.connect(pollAndSend);
+  agent.connect(async () => {
+    await startJanus();
+    pollAndSend();
+  });
   setInterval(pollAndSend, intervalMs);
 
   console.log("[bridge] Running");

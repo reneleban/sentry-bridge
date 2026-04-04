@@ -1,0 +1,6 @@
+general: {
+	json = "indented"
+	ws = true
+	ws_port = 8188
+	wss = false
+}

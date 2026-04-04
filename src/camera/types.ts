@@ -10,4 +10,7 @@ export interface CameraModule {
   subscribe(id: symbol, callback: (frame: Buffer) => void): void;
   unsubscribe(id: symbol): void;
   testStream(): Promise<Buffer>;
+  /** Start a parallel H.264 RTP stream to 127.0.0.1:{port} for Janus. */
+  startRtpStream(port: number): void;
+  stopRtpStream(): void;
 }
