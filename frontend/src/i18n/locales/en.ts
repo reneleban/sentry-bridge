@@ -1,0 +1,66 @@
+export default {
+  wizard: {
+    title: "Setup Wizard",
+    steps: {
+      prusalink: "PrusaLink",
+      camera: "Camera",
+      obico: "Obico",
+      done: "Done",
+    },
+    prusalink: {
+      heading: "Connect PrusaLink",
+      description: "Enter the URL and credentials for your PrusaLink printer.",
+      ip: "Printer IP Address",
+      ip_placeholder: "192.168.1.x",
+      username: "Username",
+      username_placeholder: "maker",
+      password: "Password",
+      test: "Test Connection",
+      testing: "Testing…",
+      success: "Connection successful",
+      error: "Connection failed",
+      next: "Next",
+    },
+    camera: {
+      heading: "Camera",
+      description:
+        "Your printer's RTSP stream will be used for live monitoring.",
+      rtsp_url: "RTSP URL",
+      rtsp_placeholder: "rtsp://192.168.1.x/live",
+      test: "Test Stream",
+      testing: "Testing…",
+      success: "Stream reachable",
+      error: "Stream not reachable",
+      preview: "Preview",
+      next: "Next",
+      back: "Back",
+    },
+    obico: {
+      heading: "Connect Obico",
+      description:
+        "Enter your Obico server URL and the verification code shown in the Obico setup wizard.",
+      server_url: "Obico Server URL",
+      server_placeholder: "http://192.168.1.x:3334",
+      pairing_code: "Verification Code",
+      code_hint:
+        "Open the Obico setup wizard — it will show you a 6-digit code. Enter it here.",
+      verify: "Verify",
+      success: "Paired successfully",
+      error: "Pairing failed",
+      back: "Back",
+    },
+    done: {
+      heading: "Setup Complete",
+      description:
+        "Your printer is connected to Obico. You can now monitor and control it from the dashboard.",
+      go_dashboard: "Go to Dashboard",
+    },
+  },
+  common: {
+    language: "Language",
+    theme: "Theme",
+    light: "Light",
+    dark: "Dark",
+    system: "System",
+  },
+};
