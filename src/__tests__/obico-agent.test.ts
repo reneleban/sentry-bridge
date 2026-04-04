@@ -196,6 +196,49 @@ describe("sendFrame()", () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
+// fetchPrinterId()
+// ──────────────────────────────────────────────────────────────────────────────
+
+describe("fetchPrinterId()", () => {
+  it("returns printer ID from /api/v1/octo/printer/", async () => {
+    mockFetch.mockResolvedValue(mockResponse(200, { id: 42 }));
+    const agent = createObicoAgent(
+      { serverUrl: "http://obico.local", apiKey: "token" },
+      mockHttp,
+      mockDispatcher
+    );
+    const id = await agent.fetchPrinterId();
+    expect(id).toBe(42);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://obico.local/api/v1/octo/printer/",
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Token token" }),
+      })
+    );
+  });
+
+  it("returns null on non-200 response", async () => {
+    mockFetch.mockResolvedValue(mockResponse(403));
+    const agent = createObicoAgent(
+      { serverUrl: "http://obico.local", apiKey: "token" },
+      mockHttp,
+      mockDispatcher
+    );
+    expect(await agent.fetchPrinterId()).toBeNull();
+  });
+
+  it("returns null when fetch throws", async () => {
+    mockFetch.mockRejectedValue(new Error("Network error"));
+    const agent = createObicoAgent(
+      { serverUrl: "http://obico.local", apiKey: "token" },
+      mockHttp,
+      mockDispatcher
+    );
+    expect(await agent.fetchPrinterId()).toBeNull();
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
 // WebSocket: connect / sendStatus / control dispatch
 // ──────────────────────────────────────────────────────────────────────────────
 

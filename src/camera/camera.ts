@@ -3,6 +3,7 @@ import { CameraConfig, CameraModule } from "./types";
 
 export function createCamera(config: CameraConfig): CameraModule {
   let proc: ChildProcess | null = null;
+  let rtpProc: ChildProcess | null = null;
   let frameCallback: ((frame: Buffer) => void) | null = null;
   const subscribers = new Map<symbol, (frame: Buffer) => void>();
 
@@ -70,6 +71,45 @@ export function createCamera(config: CameraConfig): CameraModule {
 
     unsubscribe(id: symbol): void {
       subscribers.delete(id);
+    },
+
+    startRtpStream(port: number): void {
+      if (rtpProc) return;
+      console.log(`[camera] Starting H.264 RTP stream → 127.0.0.1:${port}`);
+      rtpProc = spawnFfmpeg([
+        "-rtsp_transport",
+        "tcp",
+        "-i",
+        config.rtspUrl,
+        "-an",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-tune",
+        "zerolatency",
+        "-profile:v",
+        "baseline",
+        "-level",
+        "3.1",
+        "-f",
+        "rtp",
+        `rtp://127.0.0.1:${port}?pkt_size=1300`,
+      ]);
+      rtpProc.stderr!.on("data", (d: Buffer) =>
+        process.stderr.write(`[camera/rtp] ${d}`)
+      );
+      rtpProc.on("close", (code) => {
+        console.log(`[camera] RTP stream exited (code ${code})`);
+        rtpProc = null;
+      });
+    },
+
+    stopRtpStream(): void {
+      if (rtpProc) {
+        rtpProc.kill();
+        rtpProc = null;
+      }
     },
 
     testStream(): Promise<Buffer> {

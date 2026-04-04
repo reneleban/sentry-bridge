@@ -78,6 +78,8 @@ export interface ObicoAgent {
   waitForPairing(serverUrl: string, code: string): Promise<string>;
   sendStatus(status: PrinterStatus, job: JobInfo | null): void;
   sendFrame(jpeg: Buffer): Promise<void>;
+  /** Fetch printer ID from Obico API. Returns null on failure. */
+  fetchPrinterId(): Promise<number | null>;
 }
 
 export function buildStatusMessage(
