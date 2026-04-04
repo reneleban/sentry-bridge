@@ -162,14 +162,14 @@ export function createObicoAgent(
 
     async fetchPrinterId(): Promise<number | null> {
       try {
-        const res = await http.fetch(
-          apiUrl(config.serverUrl, "/api/v1/octo/printer/"),
-          { headers: { Authorization: `Token ${config.apiKey}` } }
-        );
+        const url = apiUrl(config.serverUrl, "/api/v1/octo/printer/");
+        const res = await http.fetch(url, {
+          headers: { Authorization: `Token ${config.apiKey}` },
+        });
         if (!res.ok) return null;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const body = (await res.json()) as any;
-        return typeof body.id === "number" ? body.id : null;
+        return typeof body.printer?.id === "number" ? body.printer.id : null;
       } catch {
         return null;
       }

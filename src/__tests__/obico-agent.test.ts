@@ -201,7 +201,9 @@ describe("sendFrame()", () => {
 
 describe("fetchPrinterId()", () => {
   it("returns printer ID from /api/v1/octo/printer/", async () => {
-    mockFetch.mockResolvedValue(mockResponse(200, { id: 42 }));
+    mockFetch.mockResolvedValue(
+      mockResponse(200, { printer: { id: 42 }, user: { is_pro: true } })
+    );
     const agent = createObicoAgent(
       { serverUrl: "http://obico.local", apiKey: "token" },
       mockHttp,
