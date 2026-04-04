@@ -140,7 +140,7 @@ export function createObicoAgent(
         );
         return;
       }
-      const msg = buildStatusMessage(status, job);
+      const msg = buildStatusMessage(status, job, config.streamUrl);
       const json = JSON.stringify(msg);
       console.log(
         "[obico] sending status:",

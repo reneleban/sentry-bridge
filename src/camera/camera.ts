@@ -4,6 +4,12 @@ import { CameraConfig, CameraModule } from "./types";
 export function createCamera(config: CameraConfig): CameraModule {
   let proc: ChildProcess | null = null;
   let frameCallback: ((frame: Buffer) => void) | null = null;
+  const subscribers = new Map<symbol, (frame: Buffer) => void>();
+
+  function emitFrame(frame: Buffer): void {
+    if (frameCallback) frameCallback(frame);
+    for (const cb of subscribers.values()) cb(frame);
+  }
 
   function spawnFfmpeg(args: string[]): ChildProcess {
     return spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -16,13 +22,14 @@ export function createCamera(config: CameraConfig): CameraModule {
 
     start(): void {
       if (proc) return;
+      // Always capture at 1fps for live stream; bridge throttles Obico uploads
       proc = spawnFfmpeg([
         "-rtsp_transport",
         "tcp",
         "-i",
         config.rtspUrl,
         "-vf",
-        `fps=1/${config.frameIntervalSeconds}`,
+        "fps=1",
         "-f",
         "image2pipe",
         "-vcodec",
@@ -41,7 +48,7 @@ export function createCamera(config: CameraConfig): CameraModule {
           chunks.length = 0;
           const remainder = buf.subarray(end + 2);
           if (remainder.length > 0) chunks.push(remainder);
-          if (frameCallback) frameCallback(frame);
+          emitFrame(frame);
         }
       });
 
@@ -55,6 +62,14 @@ export function createCamera(config: CameraConfig): CameraModule {
         proc.kill();
         proc = null;
       }
+    },
+
+    subscribe(id: symbol, callback: (frame: Buffer) => void): void {
+      subscribers.set(id, callback);
+    },
+
+    unsubscribe(id: symbol): void {
+      subscribers.delete(id);
     },
 
     testStream(): Promise<Buffer> {

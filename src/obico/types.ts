@@ -3,6 +3,7 @@ import { PrinterStatus, JobInfo } from "../prusalink/types";
 export interface ObicoAgentConfig {
   serverUrl: string;
   apiKey: string;
+  streamUrl?: string;
 }
 
 export interface HttpFetcher {
@@ -48,6 +49,18 @@ export interface PrinterStatusMessage {
       tool0: { actual: number; target: number };
       bed: { actual: number; target: number };
     };
+    webcams?: Array<{
+      name: string;
+      stream_id: number;
+      stream_url: string;
+      snapshot_url: string;
+      is_primary_camera: boolean;
+      stream_mode: string;
+      flipV: boolean;
+      flipH: boolean;
+      rotation: number;
+      streamRatio: string;
+    }>;
   };
   event?: { event_type: string };
 }
@@ -69,7 +82,8 @@ export interface ObicoAgent {
 
 export function buildStatusMessage(
   status: PrinterStatus,
-  job: JobInfo | null
+  job: JobInfo | null,
+  streamUrl?: string
 ): PrinterStatusMessage {
   const now = Math.floor(Date.now() / 1000);
   const isPrinting = status.state === "PRINTING";
@@ -116,6 +130,27 @@ export function buildStatusMessage(
         tool0: { actual: status.tempNozzle, target: status.targetNozzle },
         bed: { actual: status.tempBed, target: status.targetBed },
       },
+      ...(streamUrl
+        ? {
+            webcams: [
+              {
+                name: "camera",
+                stream_id: 1,
+                stream_url: streamUrl,
+                snapshot_url: streamUrl.replace(
+                  "/stream",
+                  "/api/camera/snapshot"
+                ),
+                is_primary_camera: true,
+                stream_mode: "mjpeg_webrtc",
+                flipV: false,
+                flipH: false,
+                rotation: 0,
+                streamRatio: "16:9",
+              },
+            ],
+          }
+        : {}),
     },
   };
 }
