@@ -17,7 +17,7 @@ services:
       - ./config/janus/janus.transport.websockets.jcfg:/usr/local/etc/janus/janus.transport.websockets.jcfg:ro
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8088/janus/info"]
+      test: ["CMD-SHELL", "nc -z localhost 8188 || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 10
