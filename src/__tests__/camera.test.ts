@@ -1,0 +1,139 @@
+import { EventEmitter } from "events";
+import { createCamera } from "../camera/camera";
+import { CameraConfig } from "../camera/types";
+
+jest.mock("child_process");
+import * as cp from "child_process";
+
+const mockSpawn = cp.spawn as jest.MockedFunction<typeof cp.spawn>;
+
+const config: CameraConfig = {
+  rtspUrl: "rtsp://192.168.178.65/live",
+  frameIntervalSeconds: 10,
+};
+
+function makeMockProcess(options: {
+  stdoutData?: Buffer[];
+  stderrData?: string[];
+  exitCode?: number;
+  errorOnSpawn?: Error;
+}): cp.ChildProcess {
+  const proc = new EventEmitter() as cp.ChildProcess;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  proc.stdout = new EventEmitter() as any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  proc.stderr = new EventEmitter() as any;
+  proc.kill = jest.fn();
+
+  setImmediate(() => {
+    if (options.stderrData) {
+      for (const line of options.stderrData) {
+        proc.stderr!.emit("data", line);
+      }
+    }
+    if (options.stdoutData) {
+      for (const chunk of options.stdoutData) {
+        proc.stdout!.emit("data", chunk);
+      }
+      proc.stdout!.emit("end");
+    }
+    if (options.exitCode !== undefined) {
+      proc.emit("close", options.exitCode);
+    }
+  });
+
+  return proc;
+}
+
+// Minimal valid JPEG (SOI + EOI markers)
+const fakeJpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0xff, 0xd9]);
+
+beforeEach(() => {
+  jest.clearAllMocks();
+});
+
+describe("Camera", () => {
+  describe("testStream()", () => {
+    it("spawns ffmpeg with correct args and returns a Buffer", async () => {
+      mockSpawn.mockReturnValue(
+        makeMockProcess({ stdoutData: [fakeJpeg], exitCode: 0 })
+      );
+      const camera = createCamera(config);
+      const frame = await camera.testStream();
+      expect(frame).toBeInstanceOf(Buffer);
+      expect(frame.length).toBeGreaterThan(0);
+      expect(mockSpawn).toHaveBeenCalledWith(
+        "ffmpeg",
+        expect.arrayContaining([
+          "-rtsp_transport",
+          "tcp",
+          "-i",
+          config.rtspUrl,
+          "-frames:v",
+          "1",
+        ]),
+        expect.anything()
+      );
+    });
+
+    it("rejects when ffmpeg exits with non-zero code", async () => {
+      mockSpawn.mockReturnValue(
+        makeMockProcess({ stdoutData: [], exitCode: 1 })
+      );
+      const camera = createCamera(config);
+      await expect(camera.testStream()).rejects.toThrow();
+    });
+
+    it("rejects when ffmpeg emits an error event", async () => {
+      const proc = makeMockProcess({});
+      mockSpawn.mockReturnValue(proc);
+      setImmediate(() =>
+        proc.emit("error", new Error("ENOENT: ffmpeg not found"))
+      );
+      const camera = createCamera(config);
+      await expect(camera.testStream()).rejects.toThrow(/ffmpeg/i);
+    });
+  });
+
+  describe("start() / stop() / onFrame()", () => {
+    it("calls onFrame callback when ffmpeg emits stdout data", (done) => {
+      mockSpawn.mockReturnValue(
+        makeMockProcess({ stdoutData: [fakeJpeg], exitCode: 0 })
+      );
+      const camera = createCamera(config);
+      camera.onFrame((frame: Buffer) => {
+        expect(frame).toBeInstanceOf(Buffer);
+        camera.stop();
+        done();
+      });
+      camera.start();
+    });
+
+    it("spawns ffmpeg with interval-based fps filter", () => {
+      const proc = makeMockProcess({});
+      mockSpawn.mockReturnValue(proc);
+      const camera = createCamera(config);
+      camera.start();
+      expect(mockSpawn).toHaveBeenCalledWith(
+        "ffmpeg",
+        expect.arrayContaining([`fps=1/${config.frameIntervalSeconds}`]),
+        expect.anything()
+      );
+      camera.stop();
+    });
+
+    it("kills the ffmpeg process on stop()", () => {
+      const proc = makeMockProcess({});
+      mockSpawn.mockReturnValue(proc);
+      const camera = createCamera(config);
+      camera.start();
+      camera.stop();
+      expect(proc.kill).toHaveBeenCalled();
+    });
+
+    it("does not crash if stop() is called before start()", () => {
+      const camera = createCamera(config);
+      expect(() => camera.stop()).not.toThrow();
+    });
+  });
+});
