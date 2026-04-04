@@ -91,8 +91,9 @@ npm run test:backend -- --watch  # watch mode
 
 ## Git Workflow
 
+- Default branch is `main` (set globally: `git config --global init.defaultBranch main`)
 - Every issue gets its own branch: `feat/issue-N-short-description`
-- Never commit directly to `master`
+- Never commit directly to `main`
 - Claude opens the PR, the user reviews and merges
 - PR title format: `feat(#N): short description`
 - Close the issue via PR description: `Closes #N`
