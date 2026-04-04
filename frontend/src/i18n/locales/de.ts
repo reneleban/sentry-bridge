@@ -11,8 +11,8 @@ export default {
       heading: "PrusaLink verbinden",
       description:
         "Gib die URL und Zugangsdaten deines PrusaLink-Druckers ein.",
-      url: "PrusaLink URL",
-      url_placeholder: "http://192.168.1.x",
+      ip: "Drucker-IP-Adresse",
+      ip_placeholder: "192.168.1.x",
       username: "Benutzername",
       username_placeholder: "maker",
       password: "Passwort",
@@ -39,12 +39,13 @@ export default {
     obico: {
       heading: "Obico verbinden",
       description:
-        "Gib die URL deines Obico-Servers ein und trage den hier angezeigten Code in Obico ein.",
+        "Gib die URL deines Obico-Servers ein und den Verifikationscode aus dem Obico-Einrichtungsassistenten.",
       server_url: "Obico Server URL",
       server_placeholder: "http://192.168.1.x:3334",
-      pairing_code: "Kopplungscode",
-      requesting: "Kopplungscode wird abgerufen…",
-      waiting: "Warte auf Bestätigung in Obico…",
+      pairing_code: "Verifikationscode",
+      code_hint:
+        "Öffne den Obico-Einrichtungsassistenten — er zeigt dir einen 6-stelligen Code. Gib ihn hier ein.",
+      verify: "Verifizieren",
       success: "Erfolgreich gekoppelt",
       error: "Kopplung fehlgeschlagen",
       back: "Zurück",

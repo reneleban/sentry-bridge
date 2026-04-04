@@ -3,9 +3,9 @@ import {
   Button,
   PasswordInput,
   Stack,
-  Text,
   TextInput,
   Alert,
+  Text,
 } from "@mantine/core";
 import { IconPlugConnected, IconCheck, IconX } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
@@ -27,12 +27,14 @@ export function StepPrusaLink() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          url: data.prusaLinkUrl,
+          url: `http://${data.printerIp}`,
           username: data.username,
           password: data.password,
         }),
       });
       if (res.ok) {
+        if (!data.rtspUrl)
+          setData({ rtspUrl: `rtsp://${data.printerIp}/live` });
         setStatus("ok");
       } else {
         const body = await res.json().catch(() => ({}));
@@ -51,10 +53,10 @@ export function StepPrusaLink() {
         {t("wizard.prusalink.description")}
       </Text>
       <TextInput
-        label={t("wizard.prusalink.url")}
-        placeholder={t("wizard.prusalink.url_placeholder")}
-        value={data.prusaLinkUrl}
-        onChange={(e) => setData({ prusaLinkUrl: e.currentTarget.value })}
+        label={t("wizard.prusalink.ip")}
+        placeholder={t("wizard.prusalink.ip_placeholder")}
+        value={data.printerIp}
+        onChange={(e) => setData({ printerIp: e.currentTarget.value })}
       />
       <TextInput
         label={t("wizard.prusalink.username")}
@@ -82,7 +84,7 @@ export function StepPrusaLink() {
         variant="default"
         loading={status === "testing"}
         onClick={handleTest}
-        disabled={!data.prusaLinkUrl || !data.password}
+        disabled={!data.printerIp || !data.password}
       >
         {t("wizard.prusalink.test")}
       </Button>
