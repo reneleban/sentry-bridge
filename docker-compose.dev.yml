@@ -8,6 +8,7 @@ version: "3.9"
 services:
   janus:
     image: canyan/janus-gateway:latest
+    platform: linux/amd64
     ports:
       - "8188:8188" # Janus WebSocket (bridge → Janus signaling)
       - "17732:17732/udp" # RTP video from ffmpeg
