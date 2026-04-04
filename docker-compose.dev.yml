@@ -17,8 +17,3 @@ services:
       - ./config/janus/janus.plugin.streaming.jcfg:/usr/local/etc/janus/janus.plugin.streaming.jcfg:ro
       - ./config/janus/janus.transport.websockets.jcfg:/usr/local/etc/janus/janus.transport.websockets.jcfg:ro
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 8188 || exit 1"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
