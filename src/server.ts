@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import { wizardRouter } from "./routes/wizard";
 import { dashboardRouter } from "./routes/dashboard";
+import { streamRouter } from "./routes/stream";
 
 export const app = express();
 
@@ -13,6 +14,7 @@ app.get("/api/health", (_req, res) => {
 
 app.use("/api/wizard", wizardRouter);
 app.use("/api", dashboardRouter);
+app.use("/", streamRouter);
 
 const publicDir = path.join(__dirname, "..", "public");
 app.use(express.static(publicDir));
