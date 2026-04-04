@@ -10,29 +10,31 @@ export interface JanusRelay {
  *
  * Janus WS (ws://127.0.0.1:8188, janus-protocol)
  *   ↕
- * Obico   ({serverUrl}/ws/janus/{printerId}/, bearer auth)
+ * Obico   ({serverUrl}/ws/janus/{apiKey}/, token in URL path — JanusWebConsumer)
+ *
+ * Note: Obico's JanusWebConsumer does NOT parse Authorization headers.
+ * Authentication is done via the auth_token in the URL path.
  */
 export function createJanusRelay(
   janusWsUrl: string,
   obicoServerUrl: string,
-  printerId: number,
+  _printerId: number,
   apiKey: string
 ): JanusRelay {
   let janusWs: WebSocket | null = null;
   let obicoWs: WebSocket | null = null;
   let stopped = false;
 
+  // Token-based URL path: /ws/token/janus/{token}/ (JanusWebConsumer, no Auth header needed)
   const obicoUrl =
     obicoServerUrl.replace(/\/$/, "").replace(/^http/, "ws") +
-    `/ws/janus/${printerId}/`;
+    `/ws/token/janus/${apiKey}/`;
 
   function connect(): void {
     if (stopped) return;
 
     janusWs = new WebSocket(janusWsUrl, "janus-protocol");
-    obicoWs = new WebSocket(obicoUrl, {
-      headers: { authorization: `bearer ${apiKey}` },
-    });
+    obicoWs = new WebSocket(obicoUrl);
 
     janusWs.on("open", () => console.log("[janus-relay] Janus WS open"));
     obicoWs.on("open", () => console.log("[janus-relay] Obico WS open"));

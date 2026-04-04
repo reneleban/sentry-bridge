@@ -91,7 +91,7 @@ describe("createJanusRelay()", () => {
     }, 100);
   });
 
-  it("connects to Obico WS with bearer auth header", (done) => {
+  it("uses auth token in Obico WS URL path (not Authorization header)", (done) => {
     const relay = createJanusRelay(
       `ws://127.0.0.1:${janusPort}`,
       `http://127.0.0.1:${obicoPort}`,
@@ -100,24 +100,8 @@ describe("createJanusRelay()", () => {
     );
 
     obicoWss.on("connection", (_ws, req) => {
-      expect(req.headers["authorization"]).toBe("bearer secret-token");
-      relay.stop();
-      done();
-    });
-
-    relay.start();
-  });
-
-  it("uses correct Obico WS path including printer ID", (done) => {
-    const relay = createJanusRelay(
-      `ws://127.0.0.1:${janusPort}`,
-      `http://127.0.0.1:${obicoPort}`,
-      42,
-      "key"
-    );
-
-    obicoWss.on("connection", (_ws, req) => {
-      expect(req.url).toBe("/ws/janus/42/");
+      expect(req.url).toBe("/ws/token/janus/secret-token/");
+      expect(req.headers["authorization"]).toBeUndefined();
       relay.stop();
       done();
     });
