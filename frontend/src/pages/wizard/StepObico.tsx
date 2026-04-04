@@ -32,10 +32,24 @@ export function StepObico() {
       });
       if (res.ok) {
         const body = await res.json();
-        setData({
-          obicoApiKey: body.apiKey,
-          obicoServerUrl: data.obicoServerUrl,
+        const apiKey: string = body.apiKey;
+        setData({ obicoApiKey: apiKey, obicoServerUrl: data.obicoServerUrl });
+
+        await fetch("/api/setup/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prusalink: {
+              url: `http://${data.printerIp}`,
+              username: data.username,
+              password: data.password,
+            },
+            camera: { rtspUrl: data.rtspUrl, frameIntervalSeconds: 10 },
+            obico: { serverUrl: data.obicoServerUrl, apiKey },
+            polling: { statusIntervalMs: 5000 },
+          }),
         });
+
         setStatus("ok");
         setTimeout(nextStep, 1000);
       } else {
