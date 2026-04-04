@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Button,
   PasswordInput,
@@ -18,6 +18,14 @@ export function StepPrusaLink() {
   const { data, setData, nextStep } = useWizard();
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState("");
+
+  // Auto-test when pre-filled from existing config
+  useEffect(() => {
+    if (data.printerIp && data.password) {
+      handleTest();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleTest() {
     setStatus("testing");

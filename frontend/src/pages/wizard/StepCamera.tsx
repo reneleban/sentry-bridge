@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Button,
   Stack,
@@ -20,6 +20,14 @@ export function StepCamera() {
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  // Auto-test when pre-filled from existing config
+  useEffect(() => {
+    if (data.rtspUrl) {
+      handleTest();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleTest() {
     setStatus("testing");
