@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { createPrusaLinkClient } from "../prusalink/client";
 import { createCamera } from "../camera/camera";
+import { isConfigured } from "../config/config";
 
 const router = Router();
 
@@ -89,6 +90,10 @@ router.post("/verify-pairing", async (req, res) => {
       err instanceof Error ? err.message : "Failed to reach Obico server";
     res.status(502).json({ message });
   }
+});
+
+router.get("/configured", (_req, res) => {
+  res.json({ configured: isConfigured() });
 });
 
 export { router as wizardRouter };
