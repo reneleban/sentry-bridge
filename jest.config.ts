@@ -6,6 +6,25 @@ const config: Config = {
   roots: ["<rootDir>/src"],
   testMatch: ["**/__tests__/**/*.test.ts"],
   collectCoverageFrom: ["src/**/*.ts", "!src/__tests__/**"],
+  reporters: [
+    "default",
+    [
+      "jest-html-reporter",
+      {
+        pageTitle: "obico-prusalink-bridge Test Report",
+        outputPath: "reports/test-report.html",
+        includeFailureMsg: true,
+        includeConsoleLog: true,
+      },
+    ],
+    [
+      "jest-junit",
+      {
+        outputDirectory: "reports",
+        outputName: "junit.xml",
+      },
+    ],
+  ],
 };
 
 export default config;

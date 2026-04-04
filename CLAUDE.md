@@ -81,6 +81,14 @@ npm run test:backend -- --watch  # watch mode
 
 > **Local development proxy**: `dev:frontend:proxy` enables Vite's built-in proxy so `/api/*` calls from the React dev server are forwarded to `http://localhost:3000`. This avoids CORS issues during development without changing any API URLs.
 
+## Git Workflow
+
+- Every issue gets its own branch: `feat/issue-N-short-description`
+- Never commit directly to `master`
+- Claude opens the PR, the user reviews and merges
+- PR title format: `feat(#N): short description`
+- Close the issue via PR description: `Closes #N`
+
 ## Testing
 
 TDD is mandatory for the three testable modules: Config, PrusaLink Client, Obico Agent.
@@ -88,3 +96,8 @@ TDD is mandatory for the three testable modules: Config, PrusaLink Client, Obico
 - Write the interface → write the tests → write the implementation
 - Test only external behavior through public interfaces
 - Do not test React frontend components in early phase
+
+Test reports are written to `reports/` (gitignored) on every `npm run test:backend` run:
+
+- `reports/test-report.html` — human-readable HTML report
+- `reports/junit.xml` — JUnit XML for CI
