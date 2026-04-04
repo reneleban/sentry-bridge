@@ -5,12 +5,12 @@
  * against a real Obico instance.
  *
  * Usage:
- *   OBICO_URL=http://192.168.1.x:3334 npx ts-node scripts/poc-obico-connect.ts
+ *   OBICO_URL=http://paperbox:3334 npm run obico
  *
  * Steps:
- *   1. Start pairing → prints a 5-char code
- *   2. Go to Obico UI → add printer → enter code
- *   3. Script polls for confirmation → prints API key
+ *   1. Go to Obico UI → Add Printer → copy the 6-char verification code
+ *   2. Run this script, enter the code when prompted
+ *   3. Script verifies code → receives API key
  *   4. Connects via WebSocket → sends one status message
  *   5. Check Obico UI → printer should appear as online
  */
@@ -22,61 +22,59 @@ const OBICO_URL = process.env.OBICO_URL;
 
 if (!OBICO_URL) {
   console.error("Error: OBICO_URL environment variable is required");
-  console.error(
-    "Usage: OBICO_URL=http://192.168.1.x:3334 npx ts-node scripts/poc-obico-connect.ts"
-  );
+  console.error("Usage: OBICO_URL=http://paperbox:3334 npm run obico");
   process.exit(1);
 }
 
 const wsUrl = OBICO_URL.replace(/^http/, "ws") + "/ws/dev/";
 
-async function step(label: string, fn: () => Promise<void>) {
-  console.log(`\n▶ ${label}`);
-  await fn();
-  console.log(`  ✓ done`);
+function prompt(question: string): Promise<string> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
 }
 
-async function requestPairingCode(): Promise<string> {
-  // The pairing code is generated server-side — user enters it in Obico UI.
-  // We use the discovery endpoint to initiate.
-  const res = await fetch(`${OBICO_URL}/api/v1/octo/discovery/`, {
+async function verifyCode(code: string): Promise<string> {
+  console.log(`  POSTing to ${OBICO_URL}/api/v1/octo/verify/`);
+  const res = await fetch(`${OBICO_URL}/api/v1/octo/verify/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ host_or_ip: "127.0.0.1", device_id: "poc-test" }),
+    body: JSON.stringify({ code }),
   });
-  const body = (await res.json()) as { code?: string };
-  if (!body.code) {
-    throw new Error(`Discovery response had no code: ${JSON.stringify(body)}`);
-  }
-  return body.code;
-}
 
-async function pollForApiKey(code: string): Promise<string> {
-  const MAX_ATTEMPTS = 60;
-  for (let i = 0; i < MAX_ATTEMPTS; i++) {
-    await new Promise((r) => setTimeout(r, 3000));
-    const res = await fetch(`${OBICO_URL}/api/v1/octo/verify/`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code }),
-    });
-    if (res.ok) {
-      const body = (await res.json()) as { auth_token?: string };
-      if (body.auth_token) return body.auth_token;
-    }
-    process.stdout.write(`  waiting... (${i + 1}/${MAX_ATTEMPTS})\r`);
+  const text = await res.text();
+  console.log(`  Response status: ${res.status}`);
+  console.log(`  Response body: ${text}`);
+
+  if (!res.ok) {
+    throw new Error(`Verification failed (${res.status}): ${text}`);
   }
-  throw new Error("Pairing confirmation timed out after 3 minutes");
+
+  const body = JSON.parse(text) as { auth_token?: string };
+  if (!body.auth_token) {
+    throw new Error(`No auth_token in response: ${text}`);
+  }
+  return body.auth_token;
 }
 
 async function connectAndSendStatus(apiKey: string): Promise<void> {
   return new Promise((resolve, reject) => {
+    console.log(`  Connecting to ${wsUrl}`);
+    console.log(`  Auth header: authorization: bearer ${apiKey}`);
+
     const ws = new WebSocket(wsUrl, {
       headers: { authorization: `bearer ${apiKey}` },
     });
 
     ws.on("open", () => {
-      console.log(`  Connected to ${wsUrl}`);
+      console.log("  ✓ WebSocket connected");
 
       const statusMsg = {
         current_print_ts: null,
@@ -104,22 +102,29 @@ async function connectAndSendStatus(apiKey: string): Promise<void> {
         },
       };
 
+      console.log("  Sending status message...");
       ws.send(JSON.stringify(statusMsg));
-      console.log("  Status message sent — check Obico UI for printer");
-      console.log("  Waiting 5s for control commands...");
+      console.log("  ✓ Status sent — check Obico UI for printer online status");
+      console.log("  Listening for 10s for incoming control commands...");
 
       setTimeout(() => {
         ws.close();
         resolve();
-      }, 5000);
+      }, 10000);
     });
 
     ws.on("message", (data) => {
-      console.log("  Received message from Obico:", data.toString());
+      console.log("  ← Received from Obico:", data.toString());
     });
 
-    ws.on("error", reject);
-    ws.on("close", () => console.log("  WebSocket closed"));
+    ws.on("error", (err) => {
+      console.error("  WebSocket error:", err.message);
+      reject(err);
+    });
+
+    ws.on("close", (code, reason) => {
+      console.log(`  WebSocket closed (${code}: ${reason})`);
+    });
   });
 }
 
@@ -127,24 +132,24 @@ async function main() {
   console.log(`\nObico POC — connecting to ${OBICO_URL}`);
   console.log("=".repeat(50));
 
-  let apiKey: string;
+  console.log("\n▶ Step 1: Pairing");
+  console.log("  → Go to Obico UI → Printers → Add Printer");
+  console.log("  → Copy the verification code shown there");
+  const code = await prompt("\n  Enter verification code: ");
 
-  await step("Step 1: Request pairing code", async () => {
-    const code = await requestPairingCode();
-    console.log(`\n  ┌─────────────────────────┐`);
-    console.log(`  │  Pairing code: ${code.padEnd(9)}│`);
-    console.log(`  └─────────────────────────┘`);
-    console.log(`  → Go to Obico UI → Add Printer → enter this code`);
+  if (!code) {
+    console.error("No code entered, aborting.");
+    process.exit(1);
+  }
 
-    apiKey = await pollForApiKey(code);
-    console.log(`\n  API key received: ${apiKey}`);
-  });
+  console.log("\n▶ Step 2: Verify code → get API key");
+  const apiKey = await verifyCode(code);
+  console.log(`  ✓ API key: ${apiKey}`);
 
-  await step("Step 2: Connect via WebSocket + send status", async () => {
-    await connectAndSendStatus(apiKey!);
-  });
+  console.log("\n▶ Step 3: WebSocket connection + status message");
+  await connectAndSendStatus(apiKey);
 
-  console.log("\n✅ POC complete — protocol findings validated\n");
+  console.log("\n✅ POC complete\n");
 }
 
 main().catch((err) => {
