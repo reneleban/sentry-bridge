@@ -73,6 +73,10 @@ npm run build:all            # both sequentially (used in Docker)
 npm run start:backend        # run compiled Express server
 npm run start:all            # build:all + start:backend
 
+# Docker
+npm run build:docker               # build image locally (single platform)
+npm run build:docker:multiplatform # build for amd64 + arm64 (requires buildx)
+
 # Tests
 npm run test:backend         # backend unit tests
 npm run test:all             # all tests

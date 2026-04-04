@@ -17,6 +17,8 @@
     "test:backend": "jest",
     "test:all": "npm run test:backend",
     "typecheck": "tsc --noEmit",
+    "build:docker": "docker build -t obico-prusalink-bridge .",
+    "build:docker:multiplatform": "docker buildx build --platform linux/amd64,linux/arm64 -t obico-prusalink-bridge .",
     "prepare": "husky"
   },
   "dependencies": {
