@@ -18,19 +18,28 @@ export function createObicoAgent(
   let disconnecting = false;
 
   function wsUrl(serverUrl: string): string {
-    return serverUrl.replace(/^http/, "ws") + "/ws/dev/";
+    return serverUrl.replace(/\/$/, "").replace(/^http/, "ws") + "/ws/dev/";
   }
 
   function apiUrl(serverUrl: string, path: string): string {
     return serverUrl.replace(/\/$/, "") + path;
   }
 
+  let onOpenCallback: (() => void) | null = null;
+
   function openWebSocket(url: string): void {
     ws = new WebSocket(url, {
       headers: { authorization: `bearer ${config.apiKey}` },
     });
 
+    ws.on("open", () => {
+      console.log("[obico] WebSocket connected to", url);
+      reconnectDelay = 1000;
+      if (onOpenCallback) onOpenCallback();
+    });
+
     ws.on("message", (data) => {
+      console.log("[obico] ← received:", data.toString());
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const msg = JSON.parse(data.toString()) as any;
@@ -40,13 +49,14 @@ export function createObicoAgent(
       }
     });
 
-    ws.on("close", () => {
+    ws.on("close", (code, reason) => {
+      console.log(`[obico] WebSocket closed: ${code} ${reason}`);
       ws = null;
       if (!disconnecting) scheduleReconnect(url);
     });
 
-    ws.on("error", () => {
-      // error is followed by close — reconnect handled there
+    ws.on("error", (err) => {
+      console.error("[obico] WebSocket error:", err.message);
     });
   }
 
@@ -76,9 +86,10 @@ export function createObicoAgent(
   }
 
   return {
-    connect(): void {
+    connect(onOpen?: () => void): void {
       disconnecting = false;
       reconnectDelay = 1000;
+      onOpenCallback = onOpen ?? null;
       openWebSocket(wsUrl(config.serverUrl));
     },
 
@@ -121,20 +132,30 @@ export function createObicoAgent(
     },
 
     sendStatus(status: PrinterStatus, job: JobInfo | null): void {
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        console.log(
+          "[obico] sendStatus skipped — WS not open (state:",
+          ws?.readyState,
+          ")"
+        );
+        return;
+      }
       const msg = buildStatusMessage(status, job);
-      ws.send(JSON.stringify(msg));
+      const json = JSON.stringify(msg);
+      console.log(
+        "[obico] sending status:",
+        status.state,
+        json.substring(0, 200)
+      );
+      ws.send(json);
     },
 
     async sendFrame(jpeg: Buffer): Promise<void> {
       const form = new FormData();
-      form.append("img", jpeg.toString("base64"));
-      form.append("name", "camera");
-      form.append("cam_name", "Buddy3D");
-      form.append("is_primary_cam", "true");
+      form.append("pic", new Blob([jpeg], { type: "image/jpeg" }), "pic.jpg");
       await http.fetch(apiUrl(config.serverUrl, "/api/v1/octo/pic/"), {
         method: "POST",
-        headers: { authorization: `bearer ${config.apiKey}` },
+        headers: { Authorization: `Token ${config.apiKey}` },
         body: form,
       });
     },

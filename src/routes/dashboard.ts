@@ -2,8 +2,20 @@ import { Router, Request, Response } from "express";
 import { loadConfig, saveConfig, Config } from "../config/config";
 import { createPrusaLinkClient } from "../prusalink/client";
 import { createCamera } from "../camera/camera";
+import { startBridge } from "../bridge";
 
 const router = Router();
+
+// ── Config read: GET /api/config ──────────────────────────────────────────
+
+router.get("/config", (_req: Request, res: Response) => {
+  try {
+    const config = loadConfig();
+    res.json(config);
+  } catch {
+    res.status(404).json({ message: "Not configured" });
+  }
+});
 
 // ── SSE: /api/status/stream ────────────────────────────────────────────────
 
@@ -156,6 +168,9 @@ router.post("/setup/save", (req: Request, res: Response) => {
       obico: body.obico,
       polling: body.polling ?? { statusIntervalMs: 5000 },
     });
+    startBridge().catch((err) =>
+      console.error("[bridge] Failed to start after config save:", err)
+    );
     res.json({ ok: true });
   } catch (err) {
     const message =

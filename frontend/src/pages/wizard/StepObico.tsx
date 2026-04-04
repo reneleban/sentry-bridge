@@ -35,7 +35,7 @@ export function StepObico() {
         const apiKey: string = body.apiKey;
         setData({ obicoApiKey: apiKey, obicoServerUrl: data.obicoServerUrl });
 
-        await fetch("/api/setup/save", {
+        const saveRes = await fetch("/api/setup/save", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -49,6 +49,13 @@ export function StepObico() {
             polling: { statusIntervalMs: 5000 },
           }),
         });
+
+        if (!saveRes.ok) {
+          const body = await saveRes.json().catch(() => ({}));
+          setErrorMsg(body.message ?? "Failed to save config");
+          setStatus("error");
+          return;
+        }
 
         setStatus("ok");
         setTimeout(nextStep, 1000);
