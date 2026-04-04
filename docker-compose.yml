@@ -1,0 +1,11 @@
+services:
+  bridge:
+    image: reneleban/obico-prusalink-bridge:latest
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - ./config:/config
+    environment:
+      - PORT=3000
+      - CONFIG_PATH=/config/config.json
+    restart: unless-stopped
