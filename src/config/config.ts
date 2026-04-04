@@ -1,10 +1,28 @@
 import * as fs from "fs";
+import * as os from "os";
 
 export interface Config {
   prusalink: { url: string; username: string; password: string };
   camera: { rtspUrl: string; frameIntervalSeconds: number };
   obico: { serverUrl: string; apiKey: string };
   polling: { statusIntervalMs: number };
+  bridgeUrl?: string;
+}
+
+export function detectBridgeUrl(port: number): string {
+  const ifaces = os.networkInterfaces();
+  for (const iface of Object.values(ifaces)) {
+    for (const addr of iface ?? []) {
+      if (addr.family === "IPv4" && !addr.internal) {
+        return `http://${addr.address}:${port}`;
+      }
+    }
+  }
+  return `http://localhost:${port}`;
+}
+
+export function getBridgeUrl(config: Config, port: number): string {
+  return config.bridgeUrl ?? detectBridgeUrl(port);
 }
 
 function configPath(): string {

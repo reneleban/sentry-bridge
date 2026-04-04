@@ -21,6 +21,8 @@ interface ConfigForm {
   rtspUrl: string;
   frameInterval: number;
   obicoServerUrl: string;
+  obicoApiKey: string;
+  bridgeUrl: string;
 }
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
@@ -35,19 +37,27 @@ export function ConfigCard() {
     rtspUrl: "",
     frameInterval: 10,
     obicoServerUrl: "",
+    obicoApiKey: "",
+    bridgeUrl: "",
   });
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [errorMsg, setErrorMsg] = useState("");
 
   useEffect(() => {
-    fetch("/api/status/stream")
-      .then(() => {})
-      .catch(() => {});
-    // Load current config via a single status poll
-    fetch("/api/health")
-      .then(() => {
-        // Config is loaded server-side; pre-fill from a dedicated endpoint if available
-        // For now we leave fields empty (user fills manually when editing)
+    fetch("/api/config")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((cfg) => {
+        if (!cfg) return;
+        setForm({
+          prusaLinkUrl: cfg.prusalink?.url ?? "",
+          username: cfg.prusalink?.username ?? "",
+          password: cfg.prusalink?.password ?? "",
+          rtspUrl: cfg.camera?.rtspUrl ?? "",
+          frameInterval: cfg.camera?.frameIntervalSeconds ?? 10,
+          obicoServerUrl: cfg.obico?.serverUrl ?? "",
+          obicoApiKey: cfg.obico?.apiKey ?? "",
+          bridgeUrl: cfg.bridgeUrl ?? "",
+        });
       })
       .catch(() => {});
   }, []);
@@ -73,8 +83,9 @@ export function ConfigCard() {
             rtspUrl: form.rtspUrl,
             frameIntervalSeconds: form.frameInterval,
           },
-          obico: { serverUrl: form.obicoServerUrl, apiKey: "" },
+          obico: { serverUrl: form.obicoServerUrl, apiKey: form.obicoApiKey },
           polling: { statusIntervalMs: 5000 },
+          bridgeUrl: form.bridgeUrl || undefined,
         }),
       });
       if (res.ok) {
@@ -137,6 +148,12 @@ export function ConfigCard() {
             value={form.obicoServerUrl}
             onChange={(e) => patch("obicoServerUrl", e.currentTarget.value)}
             placeholder="http://192.168.1.x:3334"
+          />
+          <TextInput
+            label={t("dashboard.config.bridge_url")}
+            value={form.bridgeUrl}
+            onChange={(e) => patch("bridgeUrl", e.currentTarget.value)}
+            placeholder="http://192.168.1.x:3000 (leer = auto)"
           />
           {saveStatus === "saved" && (
             <Alert color="green" icon={<IconCheck size={16} />}>
