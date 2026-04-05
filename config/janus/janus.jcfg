@@ -1,0 +1,25 @@
+general: {
+	log_to_stdout = true
+	debug_level = 4
+	admin_secret = "janusoverlord"
+	ignore_unreachable_ice_server = true
+}
+
+certificates: {
+}
+
+media: {
+	rtp_port_range = "10100-10200"
+}
+
+nat: {
+	nat_1_1_mapping = "127.0.0.1"
+}
+
+plugins: {
+	disable = "libjanus_audiobridge.so,libjanus_echotest.so,libjanus_nosip.so,libjanus_recordplay.so,libjanus_sip.so,libjanus_textroom.so,libjanus_videocall.so,libjanus_videoroom.so,libjanus_voicemail.so"
+}
+
+transports: {
+	disable = "libjanus_pfunix.so,libjanus_rabbitmq.so"
+}

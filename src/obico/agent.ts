@@ -159,5 +159,47 @@ export function createObicoAgent(
         body: form,
       });
     },
+
+    async fetchPrinterId(): Promise<number | null> {
+      try {
+        const url = apiUrl(config.serverUrl, "/api/v1/octo/printer/");
+        const res = await http.fetch(url, {
+          headers: { Authorization: `Token ${config.apiKey}` },
+        });
+        if (!res.ok) return null;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const body = (await res.json()) as any;
+        return typeof body.printer?.id === "number" ? body.printer.id : null;
+      } catch {
+        return null;
+      }
+    },
+
+    async updateAgentInfo(): Promise<void> {
+      try {
+        const url = apiUrl(config.serverUrl, "/api/v1/octo/printer/");
+        const body = {
+          agent_name: "moonraker_obico",
+          agent_version: "2.1.0",
+        };
+        const res = await http.fetch(url, {
+          method: "PATCH",
+          headers: {
+            Authorization: `Token ${config.apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        });
+        if (res.ok) {
+          console.log(
+            "[obico] Agent info updated (agent_name/agent_version/webcams)"
+          );
+        } else {
+          console.warn("[obico] updateAgentInfo failed:", res.status);
+        }
+      } catch (err) {
+        console.warn("[obico] updateAgentInfo error:", err);
+      }
+    },
   };
 }

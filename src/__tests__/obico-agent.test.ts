@@ -100,6 +100,27 @@ describe("buildStatusMessage()", () => {
     expect(msg.status.state.flags.error).toBe(true);
     expect(msg.status.state.error).toBeTruthy();
   });
+
+  it("includes settings.webcams at top-level when streamUrl provided", () => {
+    const msg = buildStatusMessage(
+      idleStatus,
+      null,
+      "http://bridge.local/stream"
+    );
+    expect(msg.settings?.webcams).toHaveLength(1);
+    expect(msg.settings?.webcams?.[0]).toMatchObject({
+      stream_url: "http://bridge.local/stream",
+      snapshot_url: "http://bridge.local/api/camera/snapshot",
+      stream_mode: "h264_transcode",
+      is_primary_camera: true,
+      stream_id: 1,
+    });
+  });
+
+  it("omits settings.webcams when streamUrl not provided", () => {
+    const msg = buildStatusMessage(idleStatus, null);
+    expect(msg.settings).toBeUndefined();
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -192,6 +213,93 @@ describe("sendFrame()", () => {
     const callArgs = mockFetch.mock.calls[0][1];
     const body = callArgs.body as FormData;
     expect(body.get("pic")).not.toBeNull();
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// fetchPrinterId()
+// ──────────────────────────────────────────────────────────────────────────────
+
+describe("fetchPrinterId()", () => {
+  it("returns printer ID from /api/v1/octo/printer/", async () => {
+    mockFetch.mockResolvedValue(
+      mockResponse(200, { printer: { id: 42 }, user: { is_pro: true } })
+    );
+    const agent = createObicoAgent(
+      { serverUrl: "http://obico.local", apiKey: "token" },
+      mockHttp,
+      mockDispatcher
+    );
+    const id = await agent.fetchPrinterId();
+    expect(id).toBe(42);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://obico.local/api/v1/octo/printer/",
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Token token" }),
+      })
+    );
+  });
+
+  it("returns null on non-200 response", async () => {
+    mockFetch.mockResolvedValue(mockResponse(403));
+    const agent = createObicoAgent(
+      { serverUrl: "http://obico.local", apiKey: "token" },
+      mockHttp,
+      mockDispatcher
+    );
+    expect(await agent.fetchPrinterId()).toBeNull();
+  });
+
+  it("returns null when fetch throws", async () => {
+    mockFetch.mockRejectedValue(new Error("Network error"));
+    const agent = createObicoAgent(
+      { serverUrl: "http://obico.local", apiKey: "token" },
+      mockHttp,
+      mockDispatcher
+    );
+    expect(await agent.fetchPrinterId()).toBeNull();
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// updateAgentInfo()
+// ──────────────────────────────────────────────────────────────────────────────
+
+describe("updateAgentInfo()", () => {
+  it("PATCHes agent_name and agent_version to /api/v1/octo/printer/", async () => {
+    mockFetch.mockResolvedValue(mockResponse(200, {}));
+    const agent = createObicoAgent(
+      { serverUrl: "http://obico.local", apiKey: "mykey" },
+      mockHttp,
+      mockDispatcher
+    );
+    await agent.updateAgentInfo();
+    const call = mockFetch.mock.calls[0];
+    expect(call[0]).toBe("http://obico.local/api/v1/octo/printer/");
+    const body = JSON.parse(call[1].body);
+    expect(body.agent_name).toBe("moonraker_obico");
+    expect(body.agent_version).toBe("2.1.0");
+    expect(body.webcams).toBeUndefined();
+  });
+
+  it("does not throw when PATCH fails", async () => {
+    mockFetch.mockResolvedValue(mockResponse(403, {}));
+    const agent = createObicoAgent(
+      { serverUrl: "http://obico.local", apiKey: "bad" },
+      mockHttp,
+      mockDispatcher
+    );
+    await expect(agent.updateAgentInfo()).resolves.toBeUndefined();
+  });
+
+  it("does not throw when fetch throws", async () => {
+    mockFetch.mockRejectedValue(new Error("Network error"));
+    const agent = createObicoAgent(
+      { serverUrl: "http://obico.local", apiKey: "bad" },
+      mockHttp,
+      mockDispatcher
+    );
+    await expect(agent.updateAgentInfo()).resolves.toBeUndefined();
   });
 });
 
