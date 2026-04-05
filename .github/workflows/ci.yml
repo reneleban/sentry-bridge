@@ -25,6 +25,14 @@ jobs:
       - name: Run tests
         run: npm run test:backend
 
+      - name: Test report
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Jest Tests
+          path: reports/junit.xml
+          reporter: jest-junit
+
   docker-build:
     runs-on: self-hosted
     needs: test
