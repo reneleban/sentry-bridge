@@ -97,6 +97,26 @@ const groups = [
     ],
   },
   {
+    name: "Clean",
+    tasks: [
+      {
+        key: "clean",
+        desc: "Remove all build artifacts (dist/, frontend/dist/, reports/)",
+        cmd: "rm -rf dist frontend/dist reports",
+      },
+      {
+        key: "clean:back",
+        desc: "Remove backend build (dist/)",
+        cmd: "rm -rf dist",
+      },
+      {
+        key: "clean:front",
+        desc: "Remove frontend build (frontend/dist/)",
+        cmd: "rm -rf frontend/dist",
+      },
+    ],
+  },
+  {
     name: "Setup",
     tasks: [
       {
