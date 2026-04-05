@@ -1,0 +1,33 @@
+# Dependencies (rebuilt in Docker stages)
+node_modules/
+frontend/node_modules/
+
+# Build output (rebuilt in Docker stages)
+dist/
+frontend/dist/
+
+# User config and secrets — NEVER bake into image, mount as volume instead
+config/config.json
+config/*.json
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.cert
+
+# Dev tools
+docker-compose.dev.yml
+scripts/
+reports/
+
+# Git and editor
+.git/
+.gitignore
+.claude/
+.vscode/
+.idea/
+
+# Docs
+README.md
+CLAUDE.md
