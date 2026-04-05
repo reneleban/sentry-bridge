@@ -12,6 +12,20 @@ export interface HttpFetcher {
 
 export interface PrinterStatusMessage {
   current_print_ts: number | null;
+  settings?: {
+    webcams?: Array<{
+      name: string;
+      stream_id: number;
+      stream_url: string;
+      snapshot_url: string;
+      is_primary_camera: boolean;
+      stream_mode: string;
+      flipV: boolean;
+      flipH: boolean;
+      rotation: number;
+      streamRatio: string;
+    }>;
+  };
   status: {
     _ts: number;
     state: {
@@ -78,6 +92,10 @@ export interface ObicoAgent {
   waitForPairing(serverUrl: string, code: string): Promise<string>;
   sendStatus(status: PrinterStatus, job: JobInfo | null): void;
   sendFrame(jpeg: Buffer): Promise<void>;
+  /** Fetch printer ID from Obico API. Returns null on failure. */
+  fetchPrinterId(): Promise<number | null>;
+  /** PATCH agent_name + agent_version so Obico frontend enables WebRTC. */
+  updateAgentInfo(): Promise<void>;
 }
 
 export function buildStatusMessage(
@@ -91,8 +109,24 @@ export function buildStatusMessage(
   const isError = status.state === "ERROR";
   const isReady = status.state === "IDLE";
 
+  const webcamEntry = streamUrl
+    ? {
+        name: "camera",
+        stream_id: 1,
+        stream_url: streamUrl,
+        snapshot_url: streamUrl.replace("/stream", "/api/camera/snapshot"),
+        is_primary_camera: true,
+        stream_mode: "h264_transcode",
+        flipV: false,
+        flipH: false,
+        rotation: 0,
+        streamRatio: "16:9",
+      }
+    : null;
+
   return {
     current_print_ts: isPrinting ? now : -1,
+    ...(webcamEntry ? { settings: { webcams: [webcamEntry] } } : {}),
     status: {
       _ts: now,
       state: {
@@ -130,27 +164,7 @@ export function buildStatusMessage(
         tool0: { actual: status.tempNozzle, target: status.targetNozzle },
         bed: { actual: status.tempBed, target: status.targetBed },
       },
-      ...(streamUrl
-        ? {
-            webcams: [
-              {
-                name: "camera",
-                stream_id: 1,
-                stream_url: streamUrl,
-                snapshot_url: streamUrl.replace(
-                  "/stream",
-                  "/api/camera/snapshot"
-                ),
-                is_primary_camera: true,
-                stream_mode: "mjpeg_webrtc",
-                flipV: false,
-                flipH: false,
-                rotation: 0,
-                streamRatio: "16:9",
-              },
-            ],
-          }
-        : {}),
+      ...(webcamEntry ? { webcams: [webcamEntry] } : {}),
     },
   };
 }

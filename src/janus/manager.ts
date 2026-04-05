@@ -1,0 +1,184 @@
+import { spawn, ChildProcess } from "child_process";
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
+
+const JANUS_WS_PORT = 8188;
+
+export interface JanusManager {
+  /** Start Janus if binary is found. Resolves true when ready, false if unavailable. */
+  start(): Promise<boolean>;
+  stop(): void;
+  readonly wsUrl: string;
+}
+
+export function createJanusManager(): JanusManager {
+  let proc: ChildProcess | null = null;
+  const wsUrl = `ws://127.0.0.1:${JANUS_WS_PORT}`;
+
+  function findJanusBinary(): string | null {
+    const candidates = ["/usr/bin/janus", "/usr/local/bin/janus", "janus"];
+    for (const bin of candidates) {
+      try {
+        // Use `which` logic — just try the absolute paths, skip PATH lookup
+        if (bin.startsWith("/") && fs.existsSync(bin)) return bin;
+      } catch {
+        // ignore
+      }
+    }
+    // Try PATH via which
+    try {
+      const { execSync } =
+        require("child_process") as typeof import("child_process");
+      const result = execSync("which janus 2>/dev/null", {
+        encoding: "utf8",
+      }).trim();
+      if (result) return result;
+    } catch {
+      // not found
+    }
+    return null;
+  }
+
+  function writeConfig(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "janus-"));
+
+    const projectConfigDir = path.join(
+      __dirname,
+      "..",
+      "..",
+      "config",
+      "janus"
+    );
+    const distConfigDir = path.join(
+      __dirname,
+      "..",
+      "..",
+      "..",
+      "config",
+      "janus"
+    );
+    const configDir = fs.existsSync(projectConfigDir)
+      ? projectConfigDir
+      : fs.existsSync(distConfigDir)
+        ? distConfigDir
+        : null;
+
+    if (configDir) {
+      for (const file of fs.readdirSync(configDir)) {
+        fs.copyFileSync(path.join(configDir, file), path.join(dir, file));
+      }
+    }
+
+    return dir;
+  }
+
+  function waitForReady(timeoutMs = 10000): Promise<boolean> {
+    return new Promise((resolve) => {
+      const deadline = Date.now() + timeoutMs;
+      const WebSocket = require("ws") as typeof import("ws");
+
+      function attempt() {
+        if (Date.now() > deadline) {
+          resolve(false);
+          return;
+        }
+        const ws = new WebSocket(wsUrl, "janus-protocol");
+        ws.once("open", () => {
+          ws.close();
+          resolve(true);
+        });
+        ws.once("error", () => {
+          setTimeout(attempt, 500);
+        });
+      }
+      attempt();
+    });
+  }
+
+  function probeWs(timeoutMs = 2000): Promise<boolean> {
+    return new Promise((resolve) => {
+      const WebSocket = require("ws") as typeof import("ws");
+      const ws = new WebSocket(wsUrl, "janus-protocol");
+      const timer = setTimeout(() => {
+        ws.terminate();
+        resolve(false);
+      }, timeoutMs);
+      ws.once("open", () => {
+        clearTimeout(timer);
+        ws.close();
+        resolve(true);
+      });
+      ws.once("error", () => {
+        clearTimeout(timer);
+        resolve(false);
+      });
+    });
+  }
+
+  return {
+    get wsUrl() {
+      return wsUrl;
+    },
+
+    async start(): Promise<boolean> {
+      // 1. Check if Janus is already running (Docker sidecar or native)
+      const alreadyRunning = await probeWs();
+      if (alreadyRunning) {
+        console.log("[janus] Already running on", wsUrl, "(sidecar/external)");
+        return true;
+      }
+
+      // 2. Try to spawn local binary
+      const binary = findJanusBinary();
+      if (!binary) {
+        console.log(
+          "[janus] Binary not found — Janus unavailable, falling back to MJPEG only"
+        );
+        return false;
+      }
+
+      if (proc) return true;
+
+      const configDir = writeConfig();
+      console.log(`[janus] Starting with config dir: ${configDir}`);
+
+      proc = spawn(binary, ["--configs-folder", configDir], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      proc.stdout!.on("data", (d: Buffer) =>
+        process.stdout.write(`[janus] ${d}`)
+      );
+      proc.stderr!.on("data", (d: Buffer) =>
+        process.stderr.write(`[janus] ${d}`)
+      );
+
+      proc.on("close", (code) => {
+        console.log(`[janus] Process exited with code ${code}`);
+        proc = null;
+      });
+
+      proc.on("error", (err) => {
+        console.error("[janus] Failed to spawn:", err.message);
+        proc = null;
+      });
+
+      const ready = await waitForReady();
+      if (!ready) {
+        console.error("[janus] Did not become ready in time");
+        this.stop();
+      } else {
+        console.log("[janus] Ready on", wsUrl);
+      }
+      return ready;
+    },
+
+    stop(): void {
+      if (proc) {
+        proc.kill();
+        proc = null;
+      }
+    },
+  };
+}
