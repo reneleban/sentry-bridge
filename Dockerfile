@@ -16,13 +16,23 @@ COPY src/ ./src/
 RUN npm run build:backend
 
 # Stage 3: Runtime
-FROM node:20-alpine AS runtime
-RUN apk add --no-cache ffmpeg
+# node:20-slim (Debian Bookworm) — required for Janus (not available on Alpine)
+FROM node:20-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    janus \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY package*.json ./
 RUN npm install --omit=dev --ignore-scripts
 COPY --from=backend-build /app/dist ./dist
 COPY --from=frontend-build /app/frontend/dist ./public
+
+# Config is mounted as a volume — never baked into the image
+VOLUME ["/config"]
+
 EXPOSE 3000
 ENV PORT=3000
 ENV CONFIG_PATH=/config/config.json

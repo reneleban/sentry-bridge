@@ -152,7 +152,11 @@ export function createObicoAgent(
 
     async sendFrame(jpeg: Buffer): Promise<void> {
       const form = new FormData();
-      form.append("pic", new Blob([jpeg], { type: "image/jpeg" }), "pic.jpg");
+      form.append(
+        "pic",
+        new Blob([new Uint8Array(jpeg)], { type: "image/jpeg" }),
+        "pic.jpg"
+      );
       await http.fetch(apiUrl(config.serverUrl, "/api/v1/octo/pic/"), {
         method: "POST",
         headers: { Authorization: `Token ${config.apiKey}` },
