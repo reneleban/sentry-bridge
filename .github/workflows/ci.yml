@@ -11,13 +11,14 @@ on:
 jobs:
   test:
     runs-on: self-hosted
-    env:
-      NODE_ENV: development
+    permissions:
+      checks: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: npm run install:all
+        run: npm install --include=dev && cd frontend && npm install --include=dev
 
       - name: Type check
         run: npm run typecheck
