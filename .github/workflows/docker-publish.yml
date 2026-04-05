@@ -39,4 +39,3 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=registry,ref=rleban/obico-prusalink-bridge:buildcache
-          cache-to: type=registry,ref=rleban/obico-prusalink-bridge:buildcache,mode=max
