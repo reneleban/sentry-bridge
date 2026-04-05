@@ -23,7 +23,7 @@ export function StepObico() {
   );
   const [errorMsg, setErrorMsg] = useState("");
 
-  const alreadyPaired = !!data.obicoApiKey && status !== "error";
+  const alreadyPaired = !!data.obicoApiKey;
 
   async function handleVerify() {
     setStatus("verifying");
