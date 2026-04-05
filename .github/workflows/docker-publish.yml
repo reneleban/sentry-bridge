@@ -26,9 +26,9 @@ jobs:
         id: meta
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            echo "tags=reneleban/obico-prusalink-bridge:${GITHUB_REF_NAME},reneleban/obico-prusalink-bridge:latest" >> $GITHUB_OUTPUT
+            echo "tags=rleban/obico-prusalink-bridge:${GITHUB_REF_NAME},rleban/obico-prusalink-bridge:latest" >> $GITHUB_OUTPUT
           else
-            echo "tags=reneleban/obico-prusalink-bridge:latest" >> $GITHUB_OUTPUT
+            echo "tags=rleban/obico-prusalink-bridge:latest" >> $GITHUB_OUTPUT
           fi
 
       - name: Build and push
@@ -38,5 +38,5 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
-          cache-from: type=registry,ref=reneleban/obico-prusalink-bridge:buildcache
-          cache-to: type=registry,ref=reneleban/obico-prusalink-bridge:buildcache,mode=max
+          cache-from: type=registry,ref=rleban/obico-prusalink-bridge:buildcache
+          cache-to: type=registry,ref=rleban/obico-prusalink-bridge:buildcache,mode=max
