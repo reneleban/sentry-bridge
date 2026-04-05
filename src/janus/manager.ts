@@ -2,6 +2,7 @@ import { spawn, ChildProcess } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import WebSocket from "ws";
 
 const JANUS_WS_PORT = 8188;
 
@@ -76,7 +77,6 @@ export function createJanusManager(): JanusManager {
   function waitForReady(timeoutMs = 10000): Promise<boolean> {
     return new Promise((resolve) => {
       const deadline = Date.now() + timeoutMs;
-      const WebSocket = require("ws") as typeof import("ws");
 
       function attempt() {
         if (Date.now() > deadline) {
@@ -98,7 +98,6 @@ export function createJanusManager(): JanusManager {
 
   function probeWs(timeoutMs = 2000): Promise<boolean> {
     return new Promise((resolve) => {
-      const WebSocket = require("ws") as typeof import("ws");
       const ws = new WebSocket(wsUrl, "janus-protocol");
       const timer = setTimeout(() => {
         ws.terminate();
