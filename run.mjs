@@ -97,7 +97,12 @@ const groups = [
       {
         key: "docker:run",
         desc: "Run already-built image with ./config mounted (no rebuild)",
-        cmd: 'docker run --rm -p 3000:3000 -v "$(pwd)/config:/config" obico-prusalink-bridge',
+        cmd: 'docker run --rm -d -p 3000:3000 -v "$(pwd)/config:/config" obico-prusalink-bridge',
+      },
+      {
+        key: "docker:logs",
+        desc: "Follow logs of running bridge container",
+        cmd: "docker logs -f $(docker ps -q --filter ancestor=obico-prusalink-bridge | head -1)",
       },
       {
         key: "docker:build",
@@ -108,6 +113,11 @@ const groups = [
         key: "docker:build:multi",
         desc: "Build multi-platform (amd64 + arm64)",
         cmd: "npm run build:docker:multiplatform",
+      },
+      {
+        key: "docker:clean",
+        desc: "Stop all project containers + remove image",
+        cmd: "docker stop $(docker ps -q --filter ancestor=obico-prusalink-bridge) 2>/dev/null; docker compose -f docker-compose.dev.yml down 2>/dev/null; docker rmi obico-prusalink-bridge 2>/dev/null; true",
       },
     ],
   },
@@ -167,6 +177,76 @@ const groups = [
 const allTasks = groups.flatMap((g) => g.tasks);
 const byKey = Object.fromEntries(allTasks.map((t) => [t.key, t]));
 
+// ── Janus sidecar check (for docker:dev) ─────────────────────────────────────
+function isJanusSidecarRunning() {
+  return new Promise((resolve) => {
+    const child = spawn(
+      "docker",
+      [
+        "ps",
+        "--filter",
+        "ancestor=canyan/janus-gateway",
+        "--format",
+        "{{.ID}}",
+      ],
+      {
+        stdio: ["ignore", "pipe", "ignore"],
+      }
+    );
+    let out = "";
+    child.stdout.on("data", (d) => (out += d.toString()));
+    child.on("close", () => resolve(out.trim().length > 0));
+  });
+}
+
+function stopJanusSidecar() {
+  return new Promise((resolve) => {
+    console.log(`\n${yellow("⏹")}  Stoppe Janus-Sidecar…`);
+    const child = spawn(
+      "docker",
+      ["compose", "-f", "docker-compose.dev.yml", "down"],
+      {
+        stdio: "inherit",
+        shell: false,
+      }
+    );
+    child.on("exit", resolve);
+  });
+}
+
+async function runWithChecks(task) {
+  if (task.key === "docker:dev") {
+    const running = await isJanusSidecarRunning();
+    if (running) {
+      console.log(
+        `\n${yellow("⚠")}  Janus-Sidecar (canyan/janus-gateway) läuft noch — ` +
+          `der Bridge-Container bringt seinen eigenen Janus mit.`
+      );
+      const rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+      await new Promise((resolve) => {
+        rl.question(
+          `  ${yellow("▸")} Janus-Sidecar jetzt stoppen? (j/N) `,
+          async (answer) => {
+            rl.close();
+            if (answer.trim().toLowerCase() === "j") {
+              await stopJanusSidecar();
+            } else {
+              console.log(
+                `${dim("  Sidecar bleibt laufen — Konflikt auf Port 8188 möglich.")}`
+              );
+            }
+            resolve();
+          }
+        );
+      });
+    }
+  }
+  run(task);
+}
+
 // ── Run a task ────────────────────────────────────────────────────────────────
 function run(task) {
   console.log(`\n${green("▶")} ${bold(task.key)}  ${dim(task.cmd)}\n`);
@@ -197,20 +277,83 @@ function printHelp(numbered = false) {
   }
 }
 
-// ── Interactive picker ────────────────────────────────────────────────────────
+// ── Interactive menu (arrow keys) ────────────────────────────────────────────
 function interactive() {
-  printHelp(true);
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  rl.question(`  ${yellow("▸")} Task number or name: `, (input) => {
-    rl.close();
-    const trimmed = input.trim();
-    const byNum = allTasks[parseInt(trimmed, 10) - 1];
-    const task = byNum ?? byKey[trimmed];
-    if (!task) {
-      console.error(`\n${red("✗")} Unknown task: ${trimmed}`);
-      process.exit(1);
+  // Build flat render list: group headers + selectable task rows
+  const rows = [];
+  for (const group of groups) {
+    rows.push({ type: "group", label: group.name });
+    for (const task of group.tasks) {
+      rows.push({ type: "task", task });
     }
-    run(task);
+  }
+  const taskRows = rows.filter((r) => r.type === "task");
+  let sel = 0;
+
+  function renderLines() {
+    const lines = [];
+    lines.push(`  ${bold("obico-prusalink-bridge")} ${dim("— task runner")}`);
+    lines.push("");
+    for (const row of rows) {
+      if (row.type === "group") {
+        lines.push(`  ${cyan(bold(row.label))}`);
+      } else {
+        const active = taskRows[sel] === row;
+        const key = row.task.key.padEnd(18);
+        const prefix = active ? `  ${yellow("▶")} ` : "    ";
+        const label = active ? `${bold(key)}` : `${dim(key)}`;
+        lines.push(`${prefix}${label} ${dim(row.task.desc)}`);
+      }
+    }
+    lines.push("");
+    lines.push(`  ${dim("↑↓ navigieren · Enter ausführen · Esc abbrechen")}`);
+    return lines;
+  }
+
+  let drawnLines = 0;
+
+  function draw() {
+    const lines = renderLines();
+    if (drawnLines > 0) {
+      process.stdout.write(`\x1b[${drawnLines}A\x1b[0J`);
+    }
+    process.stdout.write(lines.join("\n") + "\n");
+    drawnLines = lines.length;
+  }
+
+  function cleanup() {
+    process.stdin.setRawMode(false);
+    process.stdin.pause();
+    process.stdout.write("\x1b[?25h");
+  }
+
+  process.stdout.write("\x1b[?25l"); // hide cursor
+  draw();
+
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  process.stdin.setEncoding("utf8");
+
+  process.stdin.on("data", (key) => {
+    if (key === "\x1b[A") {
+      // arrow up
+      sel = sel > 0 ? sel - 1 : taskRows.length - 1;
+      draw();
+    } else if (key === "\x1b[B") {
+      // arrow down
+      sel = sel < taskRows.length - 1 ? sel + 1 : 0;
+      draw();
+    } else if (key === "\r") {
+      // enter
+      cleanup();
+      process.stdout.write("\n");
+      runWithChecks(taskRows[sel].task);
+    } else if (key === "\x1b" || key === "\x03") {
+      // escape or ctrl+c
+      cleanup();
+      process.stdout.write("\n");
+      process.exit(0);
+    }
   });
 }
 
@@ -229,5 +372,5 @@ if (!arg) {
     printHelp(false);
     process.exit(1);
   }
-  run(task);
+  runWithChecks(task);
 }
