@@ -18,7 +18,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: npm ci --include=dev && cd frontend && npm ci --include=dev
+        env:
+          npm_config_production: "false"
+        run: npm ci && cd frontend && npm ci
 
       - name: Type check
         run: npm run typecheck
