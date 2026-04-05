@@ -54,6 +54,16 @@ const groups = [
         desc: "Watch mode",
         cmd: "npm run test:backend -- --watch",
       },
+      {
+        key: "typecheck",
+        desc: "Type-check without emitting (tsc --noEmit)",
+        cmd: "npm run typecheck",
+      },
+      {
+        key: "format",
+        desc: "Format all files with Prettier",
+        cmd: "npx prettier --write .",
+      },
     ],
   },
   {
@@ -85,6 +95,11 @@ const groups = [
         cmd: "npm run docker:dev",
       },
       {
+        key: "docker:run",
+        desc: "Run already-built image with ./config mounted (no rebuild)",
+        cmd: 'docker run --rm -p 3000:3000 -v "$(pwd)/config:/config" obico-prusalink-bridge',
+      },
+      {
         key: "docker:build",
         desc: "Build image (single platform)",
         cmd: "npm run build:docker",
@@ -93,6 +108,26 @@ const groups = [
         key: "docker:build:multi",
         desc: "Build multi-platform (amd64 + arm64)",
         cmd: "npm run build:docker:multiplatform",
+      },
+    ],
+  },
+  {
+    name: "Janus",
+    tasks: [
+      {
+        key: "janus:up",
+        desc: "Start Janus WebRTC sidecar (Docker, Mac dev only)",
+        cmd: "docker compose -f docker-compose.dev.yml up -d",
+      },
+      {
+        key: "janus:down",
+        desc: "Stop Janus WebRTC sidecar",
+        cmd: "docker compose -f docker-compose.dev.yml down",
+      },
+      {
+        key: "janus:logs",
+        desc: "Follow Janus sidecar logs",
+        cmd: "docker compose -f docker-compose.dev.yml logs -f janus",
       },
     ],
   },
