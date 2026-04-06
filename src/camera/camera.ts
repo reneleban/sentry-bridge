@@ -56,7 +56,7 @@ export function createCamera(config: CameraConfig): CameraModule {
       "-i",
       config.rtspUrl,
       "-vf",
-      "fps=1",
+      "fps=5",
       "-f",
       "image2pipe",
       "-vcodec",
