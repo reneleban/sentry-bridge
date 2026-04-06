@@ -36,4 +36,13 @@ VOLUME ["/config"]
 EXPOSE 3000
 ENV PORT=3000
 ENV CONFIG_PATH=/config/config.json
+ENV CIRCUIT_BREAKER_THRESHOLD=5
+ENV CIRCUIT_BREAKER_RESET_TIMEOUT_MS=60000
+ENV RETRY_BASE_DELAY_MS=1000
+ENV RETRY_MAX_DELAY_MS=30000
+ENV HEALTHCHECK_CRITICAL_TIMEOUT_MS=120000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://localhost:3000/api/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
 CMD ["node", "dist/index.js"]

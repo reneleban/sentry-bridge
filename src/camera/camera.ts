@@ -1,11 +1,24 @@
 import { spawn, ChildProcess } from "child_process";
 import { CameraConfig, CameraModule } from "./types";
+import { calculateDelay } from "../lib/retry";
+import { resilienceConfig } from "../lib/env-config";
+import { healthMonitor } from "../lib/health";
+import { HealthState } from "../lib/health-monitor";
 
 export function createCamera(config: CameraConfig): CameraModule {
   let proc: ChildProcess | null = null;
   let rtpProc: ChildProcess | null = null;
   let frameCallback: ((frame: Buffer) => void) | null = null;
   const subscribers = new Map<symbol, (frame: Buffer) => void>();
+
+  let mjpegStopped = false;
+  let mjpegRestartAttempt = 0;
+  let mjpegRestartTimer: ReturnType<typeof setTimeout> | null = null;
+
+  let rtpStopped = false;
+  let rtpRestartAttempt = 0;
+  let rtpRestartTimer: ReturnType<typeof setTimeout> | null = null;
+  let rtpPort: number | null = null;
 
   function emitFrame(frame: Buffer): void {
     if (frameCallback) frameCallback(frame);
@@ -16,6 +29,93 @@ export function createCamera(config: CameraConfig): CameraModule {
     return spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
   }
 
+  function spawnMjpeg(): void {
+    proc = spawnFfmpeg([
+      "-rtsp_transport",
+      "tcp",
+      "-i",
+      config.rtspUrl,
+      "-vf",
+      "fps=1",
+      "-f",
+      "image2pipe",
+      "-vcodec",
+      "mjpeg",
+      "pipe:1",
+    ]);
+
+    const chunks: Buffer[] = [];
+    proc.stdout!.on("data", (chunk: Buffer) => {
+      chunks.push(chunk);
+      const buf = Buffer.concat(chunks);
+      const end = buf.lastIndexOf(Buffer.from([0xff, 0xd9]));
+      if (end !== -1) {
+        const frame = buf.subarray(0, end + 2);
+        chunks.length = 0;
+        const remainder = buf.subarray(end + 2);
+        if (remainder.length > 0) chunks.push(remainder);
+        mjpegRestartAttempt = 0;
+        healthMonitor.setState("camera", HealthState.HEALTHY);
+        emitFrame(frame);
+      }
+    });
+
+    proc.on("close", (code) => {
+      proc = null;
+      if (mjpegStopped) return;
+      console.log(`[camera] MJPEG stream exited (code ${code}) — restarting`);
+      healthMonitor.setState("camera", HealthState.RECOVERING);
+      const delay = calculateDelay(mjpegRestartAttempt, resilienceConfig.retry);
+      mjpegRestartAttempt++;
+      mjpegRestartTimer = setTimeout(() => spawnMjpeg(), delay);
+    });
+  }
+
+  function spawnRtp(port: number): void {
+    rtpProc = spawnFfmpeg([
+      "-rtsp_transport",
+      "tcp",
+      "-i",
+      config.rtspUrl,
+      "-an",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "ultrafast",
+      "-tune",
+      "zerolatency",
+      "-profile:v",
+      "baseline",
+      "-level",
+      "3.1",
+      "-g",
+      "30",
+      "-b:v",
+      "1500k",
+      "-maxrate",
+      "2000k",
+      "-bufsize",
+      "2000k",
+      "-f",
+      "rtp",
+      `rtp://127.0.0.1:${port}?pkt_size=1300`,
+    ]);
+    rtpProc.stderr!.on("data", (d: Buffer) =>
+      process.stderr.write(`[camera/rtp] ${d}`)
+    );
+    rtpProc.on("close", (code) => {
+      rtpProc = null;
+      if (rtpStopped) return;
+      console.log(`[camera] RTP stream exited (code ${code}) — restarting`);
+      healthMonitor.setState("rtp_stream", HealthState.RECOVERING);
+      const delay = calculateDelay(rtpRestartAttempt, resilienceConfig.retry);
+      rtpRestartAttempt++;
+      rtpRestartTimer = setTimeout(() => spawnRtp(port), delay);
+    });
+    rtpRestartAttempt = 0;
+    healthMonitor.setState("rtp_stream", HealthState.HEALTHY);
+  }
+
   return {
     onFrame(callback: (frame: Buffer) => void): void {
       frameCallback = callback;
@@ -23,46 +123,22 @@ export function createCamera(config: CameraConfig): CameraModule {
 
     start(): void {
       if (proc) return;
-      // Always capture at 1fps for live stream; bridge throttles Obico uploads
-      proc = spawnFfmpeg([
-        "-rtsp_transport",
-        "tcp",
-        "-i",
-        config.rtspUrl,
-        "-vf",
-        "fps=1",
-        "-f",
-        "image2pipe",
-        "-vcodec",
-        "mjpeg",
-        "pipe:1",
-      ]);
-
-      const chunks: Buffer[] = [];
-      proc.stdout!.on("data", (chunk: Buffer) => {
-        chunks.push(chunk);
-        // JPEG ends with FF D9 — emit complete frame
-        const buf = Buffer.concat(chunks);
-        const end = buf.lastIndexOf(Buffer.from([0xff, 0xd9]));
-        if (end !== -1) {
-          const frame = buf.subarray(0, end + 2);
-          chunks.length = 0;
-          const remainder = buf.subarray(end + 2);
-          if (remainder.length > 0) chunks.push(remainder);
-          emitFrame(frame);
-        }
-      });
-
-      proc.on("close", () => {
-        proc = null;
-      });
+      mjpegStopped = false;
+      mjpegRestartAttempt = 0;
+      spawnMjpeg();
     },
 
     stop(): void {
+      mjpegStopped = true;
+      if (mjpegRestartTimer) {
+        clearTimeout(mjpegRestartTimer);
+        mjpegRestartTimer = null;
+      }
       if (proc) {
         proc.kill();
         proc = null;
       }
+      healthMonitor.setState("camera", HealthState.DOWN);
     },
 
     subscribe(id: symbol, callback: (frame: Buffer) => void): void {
@@ -75,49 +151,25 @@ export function createCamera(config: CameraConfig): CameraModule {
 
     startRtpStream(port: number): void {
       if (rtpProc) return;
+      rtpStopped = false;
+      rtpPort = port;
+      rtpRestartAttempt = 0;
       console.log(`[camera] Starting H.264 RTP stream → 127.0.0.1:${port}`);
-      rtpProc = spawnFfmpeg([
-        "-rtsp_transport",
-        "tcp",
-        "-i",
-        config.rtspUrl,
-        "-an",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "ultrafast",
-        "-tune",
-        "zerolatency",
-        "-profile:v",
-        "baseline",
-        "-level",
-        "3.1",
-        "-g",
-        "30",
-        "-b:v",
-        "1500k",
-        "-maxrate",
-        "2000k",
-        "-bufsize",
-        "2000k",
-        "-f",
-        "rtp",
-        `rtp://127.0.0.1:${port}?pkt_size=1300`,
-      ]);
-      rtpProc.stderr!.on("data", (d: Buffer) =>
-        process.stderr.write(`[camera/rtp] ${d}`)
-      );
-      rtpProc.on("close", (code) => {
-        console.log(`[camera] RTP stream exited (code ${code})`);
-        rtpProc = null;
-      });
+      spawnRtp(port);
     },
 
     stopRtpStream(): void {
+      rtpStopped = true;
+      rtpPort = null;
+      if (rtpRestartTimer) {
+        clearTimeout(rtpRestartTimer);
+        rtpRestartTimer = null;
+      }
       if (rtpProc) {
         rtpProc.kill();
         rtpProc = null;
       }
+      healthMonitor.setState("rtp_stream", HealthState.DOWN);
     },
 
     testStream(): Promise<Buffer> {
@@ -139,11 +191,7 @@ export function createCamera(config: CameraConfig): CameraModule {
         ]);
 
         const chunks: Buffer[] = [];
-
         p.stdout!.on("data", (chunk: Buffer) => chunks.push(chunk));
-        p.stdout!.on("end", () => {
-          // resolved on close to know the exit code
-        });
 
         p.on("error", (err) =>
           reject(new Error(`ffmpeg error: ${err.message}`))

@@ -3,6 +3,10 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import WebSocket from "ws";
+import { calculateDelay } from "../lib/retry";
+import { resilienceConfig } from "../lib/env-config";
+import { healthMonitor } from "../lib/health";
+import { HealthState } from "../lib/health-monitor";
 
 const JANUS_WS_PORT = 8188;
 
@@ -11,10 +15,16 @@ export interface JanusManager {
   start(): Promise<boolean>;
   stop(): void;
   readonly wsUrl: string;
+  /** Called by bridge when Janus crashes — triggers restart sequence */
+  onCrash(callback: () => void): void;
 }
 
 export function createJanusManager(): JanusManager {
   let proc: ChildProcess | null = null;
+  let stopped = false;
+  let restartAttempt = 0;
+  let crashCallback: (() => void) | null = null;
+  let janusBinary: string | null = null;
   const wsUrl = `ws://127.0.0.1:${JANUS_WS_PORT}`;
 
   function findJanusBinary(): string | null {
@@ -115,69 +125,102 @@ export function createJanusManager(): JanusManager {
     });
   }
 
+  async function spawnJanus(): Promise<boolean> {
+    if (proc) return true;
+    const configDir = writeConfig();
+    console.log(`[janus] Starting with config dir: ${configDir}`);
+
+    proc = spawn(janusBinary!, ["--configs-folder", configDir], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    proc.stdout!.on("data", (d: Buffer) =>
+      process.stdout.write(`[janus] ${d}`)
+    );
+    proc.stderr!.on("data", (d: Buffer) =>
+      process.stderr.write(`[janus] ${d}`)
+    );
+
+    proc.on("close", (code) => {
+      proc = null;
+      if (stopped) return;
+      console.log(`[janus] Process exited (code ${code}) — restarting`);
+      healthMonitor.setState("janus", HealthState.RECOVERING);
+      const delay = calculateDelay(restartAttempt, resilienceConfig.retry);
+      restartAttempt++;
+      setTimeout(async () => {
+        const ok = await spawnJanus();
+        if (ok) {
+          restartAttempt = 0;
+          healthMonitor.setState("janus", HealthState.HEALTHY);
+          if (crashCallback) crashCallback();
+        }
+      }, delay);
+    });
+
+    proc.on("error", (err) => {
+      console.error("[janus] Failed to spawn:", err.message);
+      proc = null;
+    });
+
+    const ready = await waitForReady();
+    if (!ready) {
+      console.error("[janus] Did not become ready in time");
+      if (proc) {
+        proc.kill();
+        proc = null;
+      }
+    }
+    return ready;
+  }
+
   return {
     get wsUrl() {
       return wsUrl;
     },
 
+    onCrash(callback: () => void): void {
+      crashCallback = callback;
+    },
+
     async start(): Promise<boolean> {
+      stopped = false;
+
       // 1. Check if Janus is already running (Docker sidecar or native)
       const alreadyRunning = await probeWs();
       if (alreadyRunning) {
         console.log("[janus] Already running on", wsUrl, "(sidecar/external)");
+        healthMonitor.setState("janus", HealthState.HEALTHY);
         return true;
       }
 
       // 2. Try to spawn local binary
-      const binary = findJanusBinary();
-      if (!binary) {
+      janusBinary = findJanusBinary();
+      if (!janusBinary) {
         console.log(
           "[janus] Binary not found — Janus unavailable, falling back to MJPEG only"
         );
         return false;
       }
 
-      if (proc) return true;
-
-      const configDir = writeConfig();
-      console.log(`[janus] Starting with config dir: ${configDir}`);
-
-      proc = spawn(binary, ["--configs-folder", configDir], {
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-
-      proc.stdout!.on("data", (d: Buffer) =>
-        process.stdout.write(`[janus] ${d}`)
-      );
-      proc.stderr!.on("data", (d: Buffer) =>
-        process.stderr.write(`[janus] ${d}`)
-      );
-
-      proc.on("close", (code) => {
-        console.log(`[janus] Process exited with code ${code}`);
-        proc = null;
-      });
-
-      proc.on("error", (err) => {
-        console.error("[janus] Failed to spawn:", err.message);
-        proc = null;
-      });
-
-      const ready = await waitForReady();
-      if (!ready) {
-        console.error("[janus] Did not become ready in time");
-        this.stop();
-      } else {
+      const ready = await spawnJanus();
+      if (ready) {
+        restartAttempt = 0;
+        healthMonitor.setState("janus", HealthState.HEALTHY);
         console.log("[janus] Ready on", wsUrl);
+      } else {
+        healthMonitor.setState("janus", HealthState.DOWN);
       }
       return ready;
     },
 
     stop(): void {
+      stopped = true;
       if (proc) {
         proc.kill();
         proc = null;
       }
+      healthMonitor.setState("janus", HealthState.DOWN);
     },
   };
 }
