@@ -105,6 +105,29 @@ router.get("/status/stream", (req: Request, res: Response) => {
   req.on("close", () => clearInterval(interval));
 });
 
+// ── Printer info: GET /api/printer/info ───────────────────────────────────
+
+router.get("/printer/info", async (_req: Request, res: Response) => {
+  try {
+    const config = loadConfig();
+    if (config.name) {
+      res.json({ name: config.name });
+      return;
+    }
+    const client = createPrusaLinkClient({
+      baseUrl: config.prusalink.url,
+      username: config.prusalink.username,
+      password: config.prusalink.password,
+    });
+    const info = await client.getInfo();
+    res.json({ name: info.hostname });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Failed to fetch printer info";
+    res.status(502).json({ message });
+  }
+});
+
 // ── Camera snapshot: /api/camera/snapshot ─────────────────────────────────
 
 router.get("/camera/snapshot", async (_req: Request, res: Response) => {
@@ -172,6 +195,7 @@ router.post("/setup/save", (req: Request, res: Response) => {
 
   try {
     saveConfig({
+      name: body.name || undefined,
       prusalink: body.prusalink,
       camera: {
         rtspUrl: body.camera.rtspUrl,

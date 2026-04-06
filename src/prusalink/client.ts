@@ -59,6 +59,14 @@ export function createPrusaLinkClient(
   }
 
   return {
+    async getInfo() {
+      const res = await get("/api/v1/info");
+      if (!res.ok) throw new Error(`getInfo failed: ${res.status}`);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const body = (await res.json()) as any;
+      return { hostname: body.hostname as string };
+    },
+
     async testConnection() {
       try {
         const res = await get("/api/v1/info");

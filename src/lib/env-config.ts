@@ -5,6 +5,8 @@ function int(key: string, defaultValue: number): number {
   return isNaN(parsed) ? defaultValue : parsed;
 }
 
+export const janusDebugLevel = int("JANUS_DEBUG_LEVEL", 2);
+
 export const resilienceConfig = {
   circuitBreaker: {
     threshold: int("CIRCUIT_BREAKER_THRESHOLD", 5),
