@@ -15,7 +15,7 @@ export function createCamera(config: CameraConfig): CameraModule {
   let mjpegRestartAttempt = 0;
   let mjpegRestartTimer: ReturnType<typeof setTimeout> | null = null;
   let mjpegWatchdogTimer: ReturnType<typeof setTimeout> | null = null;
-  const MJPEG_WATCHDOG_MS = 30_000;
+  const MJPEG_WATCHDOG_MS = 10_000;
 
   let rtpStopped = false;
   let rtpRestartAttempt = 0;
