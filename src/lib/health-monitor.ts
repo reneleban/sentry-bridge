@@ -113,6 +113,9 @@ export function createHealthMonitor(opts: HealthMonitorOptions): HealthMonitor {
       if (health[component] === state) return;
       health[component] = state;
       stateSince[component] = Date.now();
+      if (state === HealthState.HEALTHY) {
+        lastErrors[component] = [];
+      }
 
       if (CRITICAL_COMPONENTS.includes(component)) {
         if (state === HealthState.DOWN) {

@@ -19,6 +19,10 @@ export function createCamera(config: CameraConfig): CameraModule {
   let rtpRestartAttempt = 0;
   let rtpRestartTimer: ReturnType<typeof setTimeout> | null = null;
   let rtpPort: number | null = null;
+  let rtpGeneration = 0;
+  let rtpRecoverCallback: (() => void) | null = null;
+  let rtpWatchdogTimer: ReturnType<typeof setTimeout> | null = null;
+  const RTP_WATCHDOG_MS = 30_000;
 
   function emitFrame(frame: Buffer): void {
     if (frameCallback) frameCallback(frame);
@@ -74,7 +78,20 @@ export function createCamera(config: CameraConfig): CameraModule {
     });
   }
 
-  function spawnRtp(port: number): void {
+  function resetRtpWatchdog(gen: number): void {
+    if (rtpWatchdogTimer) clearTimeout(rtpWatchdogTimer);
+    rtpWatchdogTimer = setTimeout(() => {
+      if (gen !== rtpGeneration) return;
+      console.warn("[camera] RTP watchdog: no output for 30s — killing ffmpeg");
+      if (rtpProc) {
+        rtpProc.kill();
+        rtpProc = null;
+      }
+    }, RTP_WATCHDOG_MS);
+  }
+
+  function spawnRtp(port: number, isRestart = false): void {
+    const gen = ++rtpGeneration;
     rtpProc = spawnFfmpeg([
       "-rtsp_transport",
       "tcp",
@@ -103,10 +120,17 @@ export function createCamera(config: CameraConfig): CameraModule {
       "rtp",
       `rtp://127.0.0.1:${port}?pkt_size=1300`,
     ]);
-    rtpProc.stderr!.on("data", (d: Buffer) =>
-      process.stderr.write(`[camera/rtp] ${d}`)
-    );
+    rtpProc.stderr!.on("data", (d: Buffer) => {
+      if (gen !== rtpGeneration) return;
+      process.stderr.write(`[camera/rtp] ${d}`);
+      resetRtpWatchdog(gen);
+    });
     rtpProc.on("close", (code) => {
+      if (gen !== rtpGeneration) return; // stale close event from a superseded process
+      if (rtpWatchdogTimer) {
+        clearTimeout(rtpWatchdogTimer);
+        rtpWatchdogTimer = null;
+      }
       rtpProc = null;
       if (rtpStopped) return;
       const msg = `RTP stream exited (code ${code})`;
@@ -116,10 +140,14 @@ export function createCamera(config: CameraConfig): CameraModule {
       healthMonitor.incrementRestarts("rtp_stream");
       const delay = calculateDelay(rtpRestartAttempt, resilienceConfig.retry);
       rtpRestartAttempt++;
-      rtpRestartTimer = setTimeout(() => spawnRtp(port), delay);
+      rtpRestartTimer = setTimeout(() => spawnRtp(port, true), delay);
     });
     rtpRestartAttempt = 0;
     healthMonitor.setState("rtp_stream", HealthState.HEALTHY);
+    if (isRestart && rtpRecoverCallback) {
+      rtpRecoverCallback();
+    }
+    resetRtpWatchdog(gen);
   }
 
   return {
@@ -164,12 +192,21 @@ export function createCamera(config: CameraConfig): CameraModule {
       spawnRtp(port);
     },
 
+    onRtpRecover(callback: () => void): void {
+      rtpRecoverCallback = callback;
+    },
+
     stopRtpStream(): void {
       rtpStopped = true;
       rtpPort = null;
+      rtpGeneration++; // invalidate any pending close handlers or restart timers
       if (rtpRestartTimer) {
         clearTimeout(rtpRestartTimer);
         rtpRestartTimer = null;
+      }
+      if (rtpWatchdogTimer) {
+        clearTimeout(rtpWatchdogTimer);
+        rtpWatchdogTimer = null;
       }
       if (rtpProc) {
         rtpProc.kill();

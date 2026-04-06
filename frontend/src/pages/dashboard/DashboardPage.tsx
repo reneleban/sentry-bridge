@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Container, SimpleGrid, Stack, Title } from "@mantine/core";
 import { useTranslation } from "react-i18next";
 import { usePrinterStatus } from "./usePrinterStatus";
@@ -10,11 +11,19 @@ import { ResilienceCard } from "./ResilienceCard";
 export function DashboardPage() {
   const { t } = useTranslation();
   const { status } = usePrinterStatus();
+  const [printerName, setPrinterName] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/printer/info")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d?.name && setPrinterName(d.name))
+      .catch(() => {});
+  }, []);
 
   return (
     <Container size="lg" py="xl">
       <Title order={2} mb="xl" ta="center">
-        {t("dashboard.title")}
+        {printerName ?? t("dashboard.title")}
       </Title>
       <Stack gap="md">
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">

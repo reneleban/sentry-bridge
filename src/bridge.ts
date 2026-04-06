@@ -118,6 +118,12 @@ export async function startBridge(port = 3000): Promise<void> {
       await startJanusRelay();
     });
 
+    // When camera RTSP drops and RTP stream recovers, force Obico to re-negotiate WebRTC
+    camera.onRtpRecover(async () => {
+      console.log("[bridge] RTP stream recovered — rebuilding Janus relay");
+      await startJanusRelay();
+    });
+
     await startJanusRelay();
   }
 

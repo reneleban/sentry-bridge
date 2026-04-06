@@ -68,7 +68,8 @@ const COMPONENT_ORDER = [
   "janus_relay",
 ];
 
-function stateColor(state: HealthState): string {
+function stateColor(state: HealthState, restartCount = 0): string {
+  if (state === "healthy" && restartCount > 0) return "yellow";
   switch (state) {
     case "healthy":
       return "green";
@@ -79,6 +80,11 @@ function stateColor(state: HealthState): string {
     case "down":
       return "red";
   }
+}
+
+function stateLabel(state: HealthState, restartCount = 0): string {
+  if (state === "healthy" && restartCount > 0) return "UNSTABLE";
+  return state.toUpperCase();
 }
 
 function severityColor(severity: ErrorSeverity): string {
@@ -160,7 +166,11 @@ function ComponentRow({
           </Text>
           {stats.restartCount > 0 && (
             <Tooltip label={`${stats.restartCount} Neustart(s) seit Start`}>
-              <Badge size="xs" color="gray" variant="light">
+              <Badge
+                size="xs"
+                color={stats.restartCount >= 3 ? "orange" : "gray"}
+                variant="light"
+              >
                 ↺ {stats.restartCount}
               </Badge>
             </Tooltip>
@@ -170,8 +180,12 @@ function ComponentRow({
           <Text size="xs" c="dimmed">
             {formatDuration(stats.stateSince)}
           </Text>
-          <Badge size="xs" color={stateColor(stats.state)} variant="light">
-            {stats.state}
+          <Badge
+            size="xs"
+            color={stateColor(stats.state, stats.restartCount)}
+            variant="light"
+          >
+            {stateLabel(stats.state, stats.restartCount)}
           </Badge>
         </Group>
       </Group>
@@ -257,11 +271,23 @@ export function ResilienceCard() {
     <Card withBorder radius="md" p="md">
       <Group justify="space-between" mb="sm">
         <Title order={5}>{t("dashboard.resilience.heading")}</Title>
-        {health && (
-          <Badge color={stateColor(health.overall)} variant="light">
-            {health.overall}
-          </Badge>
-        )}
+        {health &&
+          (() => {
+            const totalRestarts = health.components
+              ? Object.values(health.components).reduce(
+                  (s, c) => s + (c.restartCount ?? 0),
+                  0
+                )
+              : 0;
+            return (
+              <Badge
+                color={stateColor(health.overall, totalRestarts)}
+                variant="light"
+              >
+                {stateLabel(health.overall, totalRestarts)}
+              </Badge>
+            );
+          })()}
       </Group>
       <Stack gap="sm">
         {COMPONENT_ORDER.map((name) => {

@@ -4,7 +4,7 @@ import * as path from "path";
 import * as os from "os";
 import WebSocket from "ws";
 import { calculateDelay } from "../lib/retry";
-import { resilienceConfig } from "../lib/env-config";
+import { resilienceConfig, janusDebugLevel } from "../lib/env-config";
 import { healthMonitor } from "../lib/health";
 import { HealthState, ErrorSeverity } from "../lib/health-monitor";
 
@@ -130,9 +130,13 @@ export function createJanusManager(): JanusManager {
     const configDir = writeConfig();
     console.log(`[janus] Starting with config dir: ${configDir}`);
 
-    proc = spawn(janusBinary!, ["--configs-folder", configDir], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    proc = spawn(
+      janusBinary!,
+      ["--configs-folder", configDir, "--debug-level", String(janusDebugLevel)],
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+      }
+    );
 
     proc.stdout!.on("data", (d: Buffer) =>
       process.stdout.write(`[janus] ${d}`)

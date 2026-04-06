@@ -98,6 +98,8 @@ export default {
     },
     config: {
       heading: "Konfiguration",
+      name: "Druckername",
+      name_hint: "Leer lassen um den Hostnamen von PrusaLink zu verwenden",
       prusalink_url: "PrusaLink URL",
       username: "Benutzername",
       password: "Passwort",

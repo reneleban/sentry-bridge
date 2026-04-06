@@ -37,8 +37,13 @@ export interface JobInfo {
   displayName: string;
 }
 
+export interface PrinterInfo {
+  hostname: string;
+}
+
 export interface PrusaLinkClient {
   testConnection(): Promise<{ ok: boolean; error?: string }>;
+  getInfo(): Promise<PrinterInfo>;
   getStatus(): Promise<PrinterStatus>;
   getJob(): Promise<JobInfo | null>;
   pause(): Promise<void>;
