@@ -3,7 +3,7 @@ import { CameraConfig, CameraModule } from "./types";
 import { calculateDelay } from "../lib/retry";
 import { resilienceConfig } from "../lib/env-config";
 import { healthMonitor } from "../lib/health";
-import { HealthState } from "../lib/health-monitor";
+import { HealthState, ErrorSeverity } from "../lib/health-monitor";
 
 export function createCamera(config: CameraConfig): CameraModule {
   let proc: ChildProcess | null = null;
@@ -63,8 +63,11 @@ export function createCamera(config: CameraConfig): CameraModule {
     proc.on("close", (code) => {
       proc = null;
       if (mjpegStopped) return;
-      console.log(`[camera] MJPEG stream exited (code ${code}) — restarting`);
+      const msg = `MJPEG stream exited (code ${code})`;
+      console.log(`[camera] ${msg} — restarting`);
       healthMonitor.setState("camera", HealthState.RECOVERING);
+      healthMonitor.pushError("camera", msg, ErrorSeverity.ERROR);
+      healthMonitor.incrementRestarts("camera");
       const delay = calculateDelay(mjpegRestartAttempt, resilienceConfig.retry);
       mjpegRestartAttempt++;
       mjpegRestartTimer = setTimeout(() => spawnMjpeg(), delay);
@@ -106,8 +109,11 @@ export function createCamera(config: CameraConfig): CameraModule {
     rtpProc.on("close", (code) => {
       rtpProc = null;
       if (rtpStopped) return;
-      console.log(`[camera] RTP stream exited (code ${code}) — restarting`);
+      const msg = `RTP stream exited (code ${code})`;
+      console.log(`[camera] ${msg} — restarting`);
       healthMonitor.setState("rtp_stream", HealthState.RECOVERING);
+      healthMonitor.pushError("rtp_stream", msg, ErrorSeverity.ERROR);
+      healthMonitor.incrementRestarts("rtp_stream");
       const delay = calculateDelay(rtpRestartAttempt, resilienceConfig.retry);
       rtpRestartAttempt++;
       rtpRestartTimer = setTimeout(() => spawnRtp(port), delay);

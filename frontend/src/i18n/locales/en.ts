@@ -65,8 +65,14 @@ export default {
       heading: "Connection Status",
       prusalink: "PrusaLink",
       obico: "Obico",
+      camera: "Camera",
+      janus: "Janus WebRTC",
       connected: "Connected",
       disconnected: "Disconnected",
+    },
+    resilience: {
+      heading: "Resilience",
+      loading: "Loading…",
     },
     printer: {
       heading: "Printer",

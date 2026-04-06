@@ -10,7 +10,7 @@ import { PrinterStatus, JobInfo } from "../prusalink/types";
 import { calculateDelay } from "../lib/retry";
 import { resilienceConfig } from "../lib/env-config";
 import { healthMonitor } from "../lib/health";
-import { HealthState } from "../lib/health-monitor";
+import { HealthState, ErrorSeverity } from "../lib/health-monitor";
 
 export function createObicoAgent(
   config: ObicoAgentConfig,
@@ -59,7 +59,10 @@ export function createObicoAgent(
       console.log(`[obico] WebSocket closed: ${code} ${reason}`);
       ws = null;
       if (!disconnecting) {
+        const msg = `WebSocket closed (code ${code})`;
         healthMonitor.setState("obico_ws", HealthState.RECOVERING);
+        healthMonitor.pushError("obico_ws", msg, ErrorSeverity.WARN);
+        healthMonitor.incrementRestarts("obico_ws");
         scheduleReconnect(url);
       }
     });

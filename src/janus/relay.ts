@@ -2,7 +2,7 @@ import WebSocket from "ws";
 import { calculateDelay } from "../lib/retry";
 import { resilienceConfig } from "../lib/env-config";
 import { healthMonitor } from "../lib/health";
-import { HealthState } from "../lib/health-monitor";
+import { HealthState, ErrorSeverity } from "../lib/health-monitor";
 
 export interface JanusRelay {
   start(): void;
@@ -73,7 +73,10 @@ export function createJanusRelay(
       console.log("[janus-relay] Janus WS closed");
       obicoWs?.close();
       if (!stopped) {
+        const msg = "Janus WS connection lost";
         healthMonitor.setState("janus_relay", HealthState.RECOVERING);
+        healthMonitor.pushError("janus_relay", msg, ErrorSeverity.WARN);
+        healthMonitor.incrementRestarts("janus_relay");
         const delay = calculateDelay(reconnectAttempt, resilienceConfig.retry);
         reconnectAttempt++;
         setTimeout(connect, delay);

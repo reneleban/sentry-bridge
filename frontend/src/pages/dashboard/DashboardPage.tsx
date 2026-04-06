@@ -5,6 +5,7 @@ import { StatusCard } from "./StatusCard";
 import { PrinterCard } from "./PrinterCard";
 import { CameraCard } from "./CameraCard";
 import { ConfigCard } from "./ConfigCard";
+import { ResilienceCard } from "./ResilienceCard";
 
 export function DashboardPage() {
   const { t } = useTranslation();
@@ -21,7 +22,10 @@ export function DashboardPage() {
           <PrinterCard status={status} />
         </SimpleGrid>
         <CameraCard />
-        <ConfigCard />
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+          <ResilienceCard />
+          <ConfigCard />
+        </SimpleGrid>
       </Stack>
     </Container>
   );

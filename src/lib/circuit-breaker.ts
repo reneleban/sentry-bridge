@@ -9,8 +9,18 @@ export interface CircuitBreakerOptions {
   resetTimeoutMs: number;
 }
 
+export interface CircuitBreakerStats {
+  state: CircuitState;
+  failureCount: number;
+  totalFailures: number;
+  totalSuccesses: number;
+  openedAt: number | null;
+  timeUntilHalfOpenMs: number | null;
+}
+
 export interface CircuitBreaker {
   readonly state: CircuitState;
+  readonly stats: CircuitBreakerStats;
   execute<T>(fn: () => Promise<T>): Promise<T>;
 }
 
@@ -19,10 +29,14 @@ export function createCircuitBreaker(
 ): CircuitBreaker {
   let state = CircuitState.CLOSED;
   let failures = 0;
+  let totalFailures = 0;
+  let totalSuccesses = 0;
+  let openedAt: number | null = null;
   let resetTimer: ReturnType<typeof setTimeout> | null = null;
 
   function transitionToOpen(): void {
     state = CircuitState.OPEN;
+    openedAt = Date.now();
     if (resetTimer) clearTimeout(resetTimer);
     resetTimer = setTimeout(() => {
       state = CircuitState.HALF_OPEN;
@@ -34,6 +48,21 @@ export function createCircuitBreaker(
       return state;
     },
 
+    get stats(): CircuitBreakerStats {
+      const timeUntilHalfOpenMs =
+        state === CircuitState.OPEN && openedAt !== null
+          ? Math.max(0, opts.resetTimeoutMs - (Date.now() - openedAt))
+          : null;
+      return {
+        state,
+        failureCount: failures,
+        totalFailures,
+        totalSuccesses,
+        openedAt,
+        timeUntilHalfOpenMs,
+      };
+    },
+
     async execute<T>(fn: () => Promise<T>): Promise<T> {
       if (state === CircuitState.OPEN) {
         throw new Error("Circuit breaker is OPEN");
@@ -41,10 +70,11 @@ export function createCircuitBreaker(
 
       try {
         const result = await fn();
-        // success
+        totalSuccesses++;
         if (state === CircuitState.HALF_OPEN) {
           state = CircuitState.CLOSED;
           failures = 0;
+          openedAt = null;
           if (resetTimer) {
             clearTimeout(resetTimer);
             resetTimer = null;
@@ -54,6 +84,7 @@ export function createCircuitBreaker(
         }
         return result;
       } catch (err) {
+        totalFailures++;
         if (state === CircuitState.HALF_OPEN) {
           transitionToOpen();
         } else {

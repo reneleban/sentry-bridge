@@ -7,6 +7,12 @@ export enum HealthState {
   DOWN = "down",
 }
 
+export enum ErrorSeverity {
+  WARN = "warn",
+  ERROR = "error",
+  CRITICAL = "critical",
+}
+
 export type ComponentName =
   | "prusalink"
   | "camera"
@@ -21,11 +27,33 @@ const CRITICAL_COMPONENTS: ComponentName[] = [
   "obico_ws",
 ];
 
+const MAX_ERRORS = 3;
+
+export interface ErrorEntry {
+  ts: number;
+  msg: string;
+  severity: ErrorSeverity;
+}
+
+export interface ComponentStats {
+  state: HealthState;
+  stateSince: number;
+  restartCount: number;
+  lastErrors: ErrorEntry[];
+}
+
 type ComponentHealth = Record<ComponentName, HealthState>;
 
 export interface HealthMonitor {
   setState(component: ComponentName, state: HealthState): void;
+  pushError(
+    component: ComponentName,
+    msg: string,
+    severity?: ErrorSeverity
+  ): void;
+  incrementRestarts(component: ComponentName): void;
   getHealth(): Readonly<ComponentHealth>;
+  getComponentStats(component: ComponentName): ComponentStats;
   getOverallState(): HealthState;
   isCritical(): boolean;
   on(
@@ -51,13 +79,40 @@ export function createHealthMonitor(opts: HealthMonitorOptions): HealthMonitor {
     janus_relay: HealthState.HEALTHY,
   };
 
-  // Track when a critical component first went DOWN
+  const stateSince: Record<ComponentName, number> = {
+    prusalink: Date.now(),
+    camera: Date.now(),
+    obico_ws: Date.now(),
+    janus: Date.now(),
+    rtp_stream: Date.now(),
+    janus_relay: Date.now(),
+  };
+
+  const restartCounts: Record<ComponentName, number> = {
+    prusalink: 0,
+    camera: 0,
+    obico_ws: 0,
+    janus: 0,
+    rtp_stream: 0,
+    janus_relay: 0,
+  };
+
+  const lastErrors: Record<ComponentName, ErrorEntry[]> = {
+    prusalink: [],
+    camera: [],
+    obico_ws: [],
+    janus: [],
+    rtp_stream: [],
+    janus_relay: [],
+  };
+
   const downSince = new Map<ComponentName, number>();
 
   return {
     setState(component, state) {
       if (health[component] === state) return;
       health[component] = state;
+      stateSince[component] = Date.now();
 
       if (CRITICAL_COMPONENTS.includes(component)) {
         if (state === HealthState.DOWN) {
@@ -72,8 +127,29 @@ export function createHealthMonitor(opts: HealthMonitorOptions): HealthMonitor {
       emitter.emit("change", { component, state });
     },
 
+    pushError(component, msg, severity = ErrorSeverity.ERROR) {
+      const entry: ErrorEntry = { ts: Date.now(), msg, severity };
+      lastErrors[component].push(entry);
+      if (lastErrors[component].length > MAX_ERRORS) {
+        lastErrors[component].shift();
+      }
+    },
+
+    incrementRestarts(component) {
+      restartCounts[component]++;
+    },
+
     getHealth() {
       return { ...health };
+    },
+
+    getComponentStats(component) {
+      return {
+        state: health[component],
+        stateSince: stateSince[component],
+        restartCount: restartCounts[component],
+        lastErrors: [...lastErrors[component]],
+      };
     },
 
     getOverallState() {

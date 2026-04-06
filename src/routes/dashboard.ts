@@ -3,6 +3,8 @@ import { loadConfig, saveConfig, Config } from "../config/config";
 import { createPrusaLinkClient } from "../prusalink/client";
 import { createCamera } from "../camera/camera";
 import { startBridge } from "../bridge";
+import { healthMonitor } from "../lib/health";
+import { HealthState } from "../lib/health-monitor";
 
 const router = Router();
 
@@ -44,6 +46,7 @@ router.get("/status/stream", (req: Request, res: Response) => {
         client.getJob(),
       ]);
 
+      const health = healthMonitor.getHealth();
       send("status", {
         prusalink: {
           connected:
@@ -55,7 +58,16 @@ router.get("/status/stream", (req: Request, res: Response) => {
               : "Request failed",
         },
         obico: {
-          connected: !!(config.obico?.serverUrl && config.obico?.apiKey),
+          connected: health.obico_ws === HealthState.HEALTHY,
+        },
+        camera: {
+          connected: health.camera === HealthState.HEALTHY,
+        },
+        janus: {
+          connected: health.janus === HealthState.HEALTHY,
+          available:
+            health.janus !== HealthState.DOWN ||
+            health.rtp_stream !== HealthState.DOWN,
         },
         printer:
           status.status === "fulfilled"

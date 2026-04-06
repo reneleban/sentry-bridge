@@ -1,13 +1,42 @@
 import { Router } from "express";
-import { healthMonitor } from "../lib/health";
+import { healthMonitor, circuitBreakerRegistry } from "../lib/health";
+import type { ComponentName } from "../lib/health-monitor";
 
 const router = Router();
 
+const COMPONENTS: ComponentName[] = [
+  "prusalink",
+  "camera",
+  "obico_ws",
+  "janus",
+  "rtp_stream",
+  "janus_relay",
+];
+
 // Detailed health for dashboard — always 200
 router.get("/", (_req, res) => {
+  const components: Record<string, unknown> = {};
+
+  for (const name of COMPONENTS) {
+    const stats = healthMonitor.getComponentStats(name);
+    const entry: Record<string, unknown> = {
+      state: stats.state,
+      stateSince: stats.stateSince,
+      restartCount: stats.restartCount,
+      lastErrors: stats.lastErrors,
+    };
+
+    const cb = circuitBreakerRegistry.get(name);
+    if (cb) {
+      entry.circuitBreaker = cb.stats;
+    }
+
+    components[name] = entry;
+  }
+
   res.json({
-    components: healthMonitor.getHealth(),
     overall: healthMonitor.getOverallState(),
+    components,
   });
 });
 
@@ -17,7 +46,7 @@ router.get("/live", (_req, res) => {
 });
 
 // Readiness: are critical components healthy enough?
-// Returns 503 when isCritical() — triggers Docker restart
+// Returns 503 when isCritical() — signals Docker to restart
 router.get("/ready", (_req, res) => {
   if (healthMonitor.isCritical()) {
     res.status(503).json({
