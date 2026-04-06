@@ -23,7 +23,7 @@ export interface StatusEvent {
   janus: {
     connected: boolean;
     available: boolean;
-    mode: "external" | "embedded" | "unavailable";
+    mode: "hosted" | "bundled" | "unavailable";
   };
   printer: PrinterStatus | null;
   job: JobInfo | null;

@@ -4,13 +4,17 @@ import * as path from "path";
 import * as os from "os";
 import WebSocket from "ws";
 import { calculateDelay } from "../lib/retry";
-import { resilienceConfig, janusDebugLevel } from "../lib/env-config";
+import {
+  resilienceConfig,
+  janusDebugLevel,
+  janusModeEnv,
+} from "../lib/env-config";
 import { healthMonitor } from "../lib/health";
 import { HealthState, ErrorSeverity } from "../lib/health-monitor";
 
 const JANUS_WS_PORT = 8188;
 
-export type JanusMode = "external" | "embedded" | "unavailable";
+export type JanusMode = "hosted" | "bundled" | "unavailable";
 
 export interface JanusManager {
   /** Start Janus. Resolves true when ready, false if unavailable. */
@@ -130,21 +134,21 @@ export function createJanusManager(): JanusManager {
   }
 
   /** Periodic health check for external Janus — fires every 10s. */
-  function startExternalWatchdog(): void {
+  function startHostedWatchdog(): void {
     const INTERVAL_MS = 10_000;
     function tick() {
-      if (stopped || janusMode !== "external") return;
+      if (stopped || janusMode !== "hosted") return;
       probeWs().then((reachable) => {
         if (stopped) return;
         if (
           !reachable &&
           healthMonitor.getHealth().janus !== HealthState.RECOVERING
         ) {
-          console.warn("[janus] External Janus unreachable — recovering");
+          console.warn("[janus] Hosted Janus unreachable — recovering");
           healthMonitor.setState("janus", HealthState.RECOVERING);
           healthMonitor.pushError(
             "janus",
-            "External Janus unreachable",
+            "Hosted Janus unreachable",
             ErrorSeverity.ERROR
           );
           healthMonitor.incrementRestarts("janus");
@@ -166,7 +170,7 @@ export function createJanusManager(): JanusManager {
       if (stopped) return;
       const reachable = await probeWs();
       if (reachable) {
-        console.log("[janus] External Janus reachable again");
+        console.log("[janus] Hosted Janus reachable again");
         restartAttempt = 0;
         healthMonitor.setState("janus", HealthState.HEALTHY);
         if (crashCallback) crashCallback();
@@ -240,41 +244,81 @@ export function createJanusManager(): JanusManager {
     async start(): Promise<boolean> {
       stopped = false;
 
-      // 1. Quick probe — is Janus already running?
-      const quickProbe = await probeWs(2000);
-      if (quickProbe) {
-        janusMode = "external";
-        console.log("[janus] External Janus detected on", wsUrl);
-        healthMonitor.setState("janus", HealthState.HEALTHY);
-        startExternalWatchdog();
-        return true;
-      }
-
-      // 2. Local binary available? → embedded mode
-      janusBinary = findJanusBinary();
-      if (janusBinary) {
-        janusMode = "embedded";
-        console.log(`[janus] Embedded mode — binary: ${janusBinary}`);
+      // Explicit mode override via JANUS_MODE env var
+      if (janusModeEnv === "bundled") {
+        janusBinary = findJanusBinary();
+        if (!janusBinary) {
+          console.error(
+            "[janus] JANUS_MODE=bundled but no binary found — unavailable"
+          );
+          janusMode = "unavailable";
+          return false;
+        }
+        janusMode = "bundled";
+        console.log(`[janus] Bundled mode (explicit) — binary: ${janusBinary}`);
         spawnEmbedded();
         const ready = await waitForReady(10000);
         if (ready) {
           restartAttempt = 0;
           healthMonitor.setState("janus", HealthState.HEALTHY);
-          console.log("[janus] Embedded Janus ready on", wsUrl);
+          console.log("[janus] Bundled Janus ready on", wsUrl);
         } else {
           healthMonitor.setState("janus", HealthState.DOWN);
         }
         return ready;
       }
 
-      // 3. No binary — wait longer for a slow-starting sidecar/container
-      console.log("[janus] No local binary — waiting for external sidecar…");
-      const sidecarReady = await waitForReady(15000);
-      if (sidecarReady) {
-        janusMode = "external";
-        console.log("[janus] External sidecar became ready on", wsUrl);
+      if (janusModeEnv === "hosted") {
+        janusMode = "hosted";
+        console.log(
+          "[janus] Hosted mode (explicit) — waiting for Janus on",
+          wsUrl
+        );
+        const ready = await waitForReady(15000);
+        if (ready) {
+          healthMonitor.setState("janus", HealthState.HEALTHY);
+          startHostedWatchdog();
+        } else {
+          healthMonitor.setState("janus", HealthState.DOWN);
+        }
+        return ready;
+      }
+
+      // auto: 1. quick probe → hosted
+      const quickProbe = await probeWs(2000);
+      if (quickProbe) {
+        janusMode = "hosted";
+        console.log("[janus] Hosted Janus detected on", wsUrl);
         healthMonitor.setState("janus", HealthState.HEALTHY);
-        startExternalWatchdog();
+        startHostedWatchdog();
+        return true;
+      }
+
+      // auto: 2. local binary → bundled
+      janusBinary = findJanusBinary();
+      if (janusBinary) {
+        janusMode = "bundled";
+        console.log(`[janus] Bundled mode — binary: ${janusBinary}`);
+        spawnEmbedded();
+        const ready = await waitForReady(10000);
+        if (ready) {
+          restartAttempt = 0;
+          healthMonitor.setState("janus", HealthState.HEALTHY);
+          console.log("[janus] Bundled Janus ready on", wsUrl);
+        } else {
+          healthMonitor.setState("janus", HealthState.DOWN);
+        }
+        return ready;
+      }
+
+      // auto: 3. no binary — wait longer for slow-starting hosted sidecar
+      console.log("[janus] No local binary — waiting for hosted Janus…");
+      const hostedReady = await waitForReady(15000);
+      if (hostedReady) {
+        janusMode = "hosted";
+        console.log("[janus] Hosted Janus became ready on", wsUrl);
+        healthMonitor.setState("janus", HealthState.HEALTHY);
+        startHostedWatchdog();
         return true;
       }
 

@@ -43,7 +43,8 @@ export function StatusCard({ status }: Props) {
               <Text size="sm">{t("dashboard.status.janus")}</Text>
               {status.janus.mode !== "unavailable" && (
                 <Badge size="xs" color="gray" variant="outline">
-                  {t(`dashboard.status.janus_${status.janus.mode}`)}
+                  {status.janus.mode !== "unavailable" &&
+                    t(`dashboard.status.janus_${status.janus.mode}`)}
                 </Badge>
               )}
             </Group>

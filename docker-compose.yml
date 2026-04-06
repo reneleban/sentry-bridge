@@ -16,6 +16,8 @@ services:
       - RETRY_BASE_DELAY_MS=1000
       - RETRY_MAX_DELAY_MS=30000
       - HEALTHCHECK_CRITICAL_TIMEOUT_MS=120000
+      # Janus mode: bundled (bridge manages Janus binary) | hosted (external/sidecar) | auto
+      - JANUS_MODE=bundled
       # Janus log verbosity: 0=Fatal 1=Err 2=Warn 3=Info 4=Verbose 5=Huge (default: 2)
       - JANUS_DEBUG_LEVEL=2
     healthcheck:
