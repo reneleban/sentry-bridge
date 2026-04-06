@@ -122,7 +122,7 @@ export function ConfigCard() {
             label={t("dashboard.config.name")}
             value={form.name}
             onChange={(e) => patch("name", e.currentTarget.value)}
-            placeholder="My Printer"
+            placeholder={t("dashboard.config.name_placeholder")}
             description={t("dashboard.config.name_hint")}
           />
           <TextInput
