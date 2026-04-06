@@ -5,6 +5,10 @@ import {
   PrusaLinkClient,
   PrusaLinkConfig,
 } from "./types";
+import { createCircuitBreaker } from "../lib/circuit-breaker";
+import { resilienceConfig } from "../lib/env-config";
+import { healthMonitor } from "../lib/health";
+import { HealthState } from "../lib/health-monitor";
 
 export interface HttpFetcher {
   fetch(url: string, options?: RequestInit): Promise<Response>;
@@ -21,9 +25,19 @@ export function createPrusaLinkClient(
 ): PrusaLinkClient {
   const http = fetcher ?? createDigestFetcher(config.username, config.password);
   const base = config.baseUrl.replace(/\/$/, "");
+  const cb = createCircuitBreaker(resilienceConfig.circuitBreaker);
 
   async function get(path: string): Promise<Response> {
-    return http.fetch(`${base}${path}`, { method: "GET" });
+    try {
+      const res = await cb.execute(() =>
+        http.fetch(`${base}${path}`, { method: "GET" })
+      );
+      healthMonitor.setState("prusalink", HealthState.HEALTHY);
+      return res;
+    } catch (err) {
+      healthMonitor.setState("prusalink", HealthState.DOWN);
+      throw err;
+    }
   }
 
   async function getJobId(): Promise<number> {

@@ -7,6 +7,10 @@ import {
   buildStatusMessage,
 } from "./types";
 import { PrinterStatus, JobInfo } from "../prusalink/types";
+import { calculateDelay } from "../lib/retry";
+import { resilienceConfig } from "../lib/env-config";
+import { healthMonitor } from "../lib/health";
+import { HealthState } from "../lib/health-monitor";
 
 export function createObicoAgent(
   config: ObicoAgentConfig,
@@ -26,6 +30,7 @@ export function createObicoAgent(
   }
 
   let onOpenCallback: (() => void) | null = null;
+  let reconnectAttempt = 0;
 
   function openWebSocket(url: string): void {
     ws = new WebSocket(url, {
@@ -34,7 +39,8 @@ export function createObicoAgent(
 
     ws.on("open", () => {
       console.log("[obico] WebSocket connected to", url);
-      reconnectDelay = 1000;
+      reconnectAttempt = 0;
+      healthMonitor.setState("obico_ws", HealthState.HEALTHY);
       if (onOpenCallback) onOpenCallback();
     });
 
@@ -52,7 +58,10 @@ export function createObicoAgent(
     ws.on("close", (code, reason) => {
       console.log(`[obico] WebSocket closed: ${code} ${reason}`);
       ws = null;
-      if (!disconnecting) scheduleReconnect(url);
+      if (!disconnecting) {
+        healthMonitor.setState("obico_ws", HealthState.RECOVERING);
+        scheduleReconnect(url);
+      }
     });
 
     ws.on("error", (err) => {
@@ -60,13 +69,10 @@ export function createObicoAgent(
     });
   }
 
-  let reconnectDelay = 1000;
-
   function scheduleReconnect(url: string): void {
-    reconnectTimer = setTimeout(() => {
-      reconnectDelay = Math.min(reconnectDelay * 2, 30000);
-      openWebSocket(url);
-    }, reconnectDelay);
+    const delay = calculateDelay(reconnectAttempt, resilienceConfig.retry);
+    reconnectAttempt++;
+    reconnectTimer = setTimeout(() => openWebSocket(url), delay);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -88,8 +94,9 @@ export function createObicoAgent(
   return {
     connect(onOpen?: () => void): void {
       disconnecting = false;
-      reconnectDelay = 1000;
+      reconnectAttempt = 0;
       onOpenCallback = onOpen ?? null;
+      healthMonitor.setState("obico_ws", HealthState.RECOVERING);
       openWebSocket(wsUrl(config.serverUrl));
     },
 
@@ -103,6 +110,7 @@ export function createObicoAgent(
         ws.close();
         ws = null;
       }
+      healthMonitor.setState("obico_ws", HealthState.DOWN);
     },
 
     async startPairing(serverUrl: string): Promise<string> {
