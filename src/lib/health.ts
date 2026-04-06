@@ -13,7 +13,7 @@ export const healthMonitor = createHealthMonitor({
 export const circuitBreakerRegistry = new Map<ComponentName, CircuitBreaker>();
 
 // Janus mode — set once by bridge after start(), read by SSE route
-export let janusMode: JanusMode = "unavailable";
+export let janusMode: JanusMode = "unavailable"; // set once by bridge after start()
 export function setJanusMode(mode: JanusMode): void {
   janusMode = mode;
 }

@@ -7,6 +7,14 @@ function int(key: string, defaultValue: number): number {
 
 export const janusDebugLevel = int("JANUS_DEBUG_LEVEL", 2);
 
+type JanusModeEnv = "bundled" | "hosted" | "auto";
+function janusMode(): JanusModeEnv {
+  const val = process.env.JANUS_MODE;
+  if (val === "bundled" || val === "hosted") return val;
+  return "auto";
+}
+export const janusModeEnv = janusMode();
+
 export const resilienceConfig = {
   circuitBreaker: {
     threshold: int("CIRCUIT_BREAKER_THRESHOLD", 5),
