@@ -96,13 +96,13 @@ const groups = [
       },
       {
         key: "docker:run",
-        desc: "Run already-built image with ./config mounted (no rebuild)",
-        cmd: 'docker run --rm -d -p 3000:3000 -v "$(pwd)/config:/config" obico-prusalink-bridge',
+        desc: "Run already-built image (no rebuild)",
+        cmd: "npm run docker:run",
       },
       {
         key: "docker:logs",
         desc: "Follow logs of running bridge container",
-        cmd: "docker logs -f $(docker ps -q --filter ancestor=obico-prusalink-bridge | head -1)",
+        cmd: "npm run docker:logs",
       },
       {
         key: "docker:build",
@@ -116,8 +116,8 @@ const groups = [
       },
       {
         key: "docker:clean",
-        desc: "Stop all project containers + remove image",
-        cmd: "docker stop $(docker ps -q --filter ancestor=obico-prusalink-bridge) 2>/dev/null; docker compose -f docker-compose.dev.yml down 2>/dev/null; docker rmi obico-prusalink-bridge 2>/dev/null; true",
+        desc: "Stop all containers + remove local image",
+        cmd: "npm run docker:clean",
       },
     ],
   },

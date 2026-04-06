@@ -19,7 +19,10 @@
     "typecheck": "tsc --noEmit",
     "build:docker": "docker build -t obico-prusalink-bridge .",
     "build:docker:multiplatform": "docker buildx build --platform linux/amd64,linux/arm64 -t obico-prusalink-bridge .",
-    "docker:dev": "npm run build:docker && docker run --rm -d -p 3000:3000 -v \"$(pwd)/config:/config\" obico-prusalink-bridge",
+    "docker:dev": "docker compose up --build -d",
+    "docker:run": "docker compose up --pull never -d",
+    "docker:logs": "docker compose logs -f",
+    "docker:clean": "docker compose down --rmi local; true",
     "prepare": "husky"
   },
   "dependencies": {

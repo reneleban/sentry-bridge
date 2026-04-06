@@ -1,6 +1,8 @@
 services:
   bridge:
     image: reneleban/obico-prusalink-bridge:latest
+    container_name: prubico_bridge
+    build: .
     ports:
       - "${PORT:-3000}:3000"
     volumes:
