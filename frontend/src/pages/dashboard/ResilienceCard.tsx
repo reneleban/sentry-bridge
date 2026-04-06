@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import {
   Badge,
   Card,
-  Collapse,
   Group,
   Stack,
   Text,
@@ -87,7 +86,6 @@ function severityColor(severity: ErrorSeverity): string {
     case "warn":
       return "yellow";
     case "error":
-      return "red";
     case "critical":
       return "red";
   }
@@ -149,17 +147,12 @@ function ComponentRow({
   name: string;
   stats: ComponentStats;
 }) {
-  const [open, setOpen] = useState(false);
-  const hasDetails = stats.lastErrors.length > 0 || stats.circuitBreaker;
   const label = COMPONENT_LABELS[name] ?? name;
+  const hasDetails = stats.lastErrors.length > 0 || !!stats.circuitBreaker;
 
   return (
-    <Stack gap={4}>
-      <Group
-        justify="space-between"
-        style={{ cursor: hasDetails ? "pointer" : "default" }}
-        onClick={() => hasDetails && setOpen((o) => !o)}
-      >
+    <Stack gap={6}>
+      <Group justify="space-between">
         <Group gap="xs">
           <StateIcon state={stats.state} />
           <Text size="sm" fw={500}>
@@ -184,61 +177,61 @@ function ComponentRow({
       </Group>
 
       {hasDetails && (
-        <Collapse expanded={open}>
-          <Stack gap={4} pl="lg">
-            {stats.circuitBreaker && (
-              <Group gap="xs">
-                <ThemeIcon
-                  color={cbStateColor(stats.circuitBreaker.state)}
-                  variant="light"
-                  size="xs"
+        <Stack gap={4} pl="calc(1.5rem + 8px)">
+          {stats.circuitBreaker && (
+            <Group gap="xs" wrap="nowrap">
+              <ThemeIcon
+                color={cbStateColor(stats.circuitBreaker.state)}
+                variant="light"
+                size="xs"
+                style={{ flexShrink: 0 }}
+              >
+                <IconShield size={10} />
+              </ThemeIcon>
+              <Text size="xs" c="dimmed">
+                CB:{" "}
+                <Text
+                  span
+                  fw={600}
+                  c={cbStateColor(stats.circuitBreaker.state)}
                 >
-                  <IconShield size={10} />
-                </ThemeIcon>
-                <Text size="xs" c="dimmed">
-                  Circuit Breaker:{" "}
-                  <Text
-                    span
-                    fw={500}
-                    c={cbStateColor(stats.circuitBreaker.state)}
-                  >
-                    {stats.circuitBreaker.state}
-                  </Text>
-                  {stats.circuitBreaker.state === "OPEN" &&
-                    stats.circuitBreaker.timeUntilHalfOpenMs !== null && (
-                      <>
-                        {" "}
-                        — Reset in{" "}
-                        {Math.ceil(
-                          stats.circuitBreaker.timeUntilHalfOpenMs / 1000
-                        )}
-                        s
-                      </>
-                    )}
-                  {" · "}
-                  {stats.circuitBreaker.failureCount}/
-                  {stats.circuitBreaker.totalFailures} Fehler
-                  {" · "}
-                  {stats.circuitBreaker.totalSuccesses} OK
+                  {stats.circuitBreaker.state}
                 </Text>
-              </Group>
-            )}
-            {stats.lastErrors.map((e, i) => (
-              <Group key={i} gap="xs" align="flex-start">
-                <Badge
-                  size="xs"
-                  color={severityColor(e.severity)}
-                  variant="dot"
-                >
-                  {e.severity}
-                </Badge>
-                <Text size="xs" c="dimmed" style={{ flex: 1 }}>
-                  {new Date(e.ts).toLocaleTimeString()} — {e.msg}
-                </Text>
-              </Group>
-            ))}
-          </Stack>
-        </Collapse>
+                {stats.circuitBreaker.state === "OPEN" &&
+                  stats.circuitBreaker.timeUntilHalfOpenMs !== null && (
+                    <>
+                      {" "}
+                      — Reset in{" "}
+                      {Math.ceil(
+                        stats.circuitBreaker.timeUntilHalfOpenMs / 1000
+                      )}
+                      s
+                    </>
+                  )}
+                {" · "}
+                {stats.circuitBreaker.failureCount}/
+                {stats.circuitBreaker.totalFailures} Fehler
+                {" · "}
+                {stats.circuitBreaker.totalSuccesses} OK
+              </Text>
+            </Group>
+          )}
+          {stats.lastErrors.map((e, i) => (
+            <Group key={i} gap="xs" wrap="nowrap" align="flex-start">
+              <Badge
+                size="xs"
+                color={severityColor(e.severity)}
+                variant="dot"
+                style={{ flexShrink: 0, marginTop: 2 }}
+              >
+                {e.severity}
+              </Badge>
+              <Text size="xs" c="dimmed" style={{ wordBreak: "break-word" }}>
+                {new Date(e.ts).toLocaleTimeString()} — {e.msg}
+              </Text>
+            </Group>
+          ))}
+        </Stack>
       )}
     </Stack>
   );
@@ -261,7 +254,7 @@ export function ResilienceCard() {
   }, []);
 
   return (
-    <Card withBorder radius="md" p="md" style={{ height: "100%" }}>
+    <Card withBorder radius="md" p="md">
       <Group justify="space-between" mb="sm">
         <Title order={5}>{t("dashboard.resilience.heading")}</Title>
         {health && (

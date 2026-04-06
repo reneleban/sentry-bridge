@@ -64,7 +64,7 @@ router.get("/status/stream", (req: Request, res: Response) => {
           connected: health.camera === HealthState.HEALTHY,
         },
         janus: {
-          connected: health.janus === HealthState.HEALTHY,
+          connected: health.janus_relay === HealthState.HEALTHY,
           available:
             health.janus !== HealthState.DOWN ||
             health.rtp_stream !== HealthState.DOWN,

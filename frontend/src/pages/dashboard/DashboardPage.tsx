@@ -22,10 +22,8 @@ export function DashboardPage() {
           <PrinterCard status={status} />
         </SimpleGrid>
         <CameraCard />
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-          <ResilienceCard />
-          <ConfigCard />
-        </SimpleGrid>
+        <ResilienceCard />
+        <ConfigCard />
       </Stack>
     </Container>
   );
