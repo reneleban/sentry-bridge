@@ -163,7 +163,6 @@ export function createCamera(config: CameraConfig): CameraModule {
       rtpRestartAttempt++;
       rtpRestartTimer = setTimeout(() => spawnRtp(port, true), delay);
     });
-    rtpRestartAttempt = 0;
     healthMonitor.setState("rtp_stream", HealthState.HEALTHY);
     if (isRestart && rtpRecoverCallback) {
       rtpRecoverCallback();
