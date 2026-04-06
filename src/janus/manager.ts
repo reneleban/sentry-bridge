@@ -10,12 +10,16 @@ import { HealthState, ErrorSeverity } from "../lib/health-monitor";
 
 const JANUS_WS_PORT = 8188;
 
+export type JanusMode = "external" | "embedded" | "unavailable";
+
 export interface JanusManager {
-  /** Start Janus if binary is found. Resolves true when ready, false if unavailable. */
+  /** Start Janus. Resolves true when ready, false if unavailable. */
   start(): Promise<boolean>;
   stop(): void;
   readonly wsUrl: string;
-  /** Called by bridge when Janus crashes — triggers restart sequence */
+  /** Mode is set once at startup and never changes. */
+  readonly mode: JanusMode;
+  /** Called by bridge when Janus becomes ready after a crash. */
   onCrash(callback: () => void): void;
 }
 
@@ -25,19 +29,19 @@ export function createJanusManager(): JanusManager {
   let restartAttempt = 0;
   let crashCallback: (() => void) | null = null;
   let janusBinary: string | null = null;
+  let janusMode: JanusMode = "unavailable";
+  let externalPollTimer: ReturnType<typeof setTimeout> | null = null;
   const wsUrl = `ws://127.0.0.1:${JANUS_WS_PORT}`;
 
   function findJanusBinary(): string | null {
     const candidates = ["/usr/bin/janus", "/usr/local/bin/janus", "janus"];
     for (const bin of candidates) {
       try {
-        // Use `which` logic — just try the absolute paths, skip PATH lookup
         if (bin.startsWith("/") && fs.existsSync(bin)) return bin;
       } catch {
         // ignore
       }
     }
-    // Try PATH via which
     try {
       const { execSync } =
         require("child_process") as typeof import("child_process");
@@ -125,10 +129,57 @@ export function createJanusManager(): JanusManager {
     });
   }
 
-  async function spawnJanus(): Promise<boolean> {
-    if (proc) return true;
+  /** Periodic health check for external Janus — fires every 10s. */
+  function startExternalWatchdog(): void {
+    const INTERVAL_MS = 10_000;
+    function tick() {
+      if (stopped || janusMode !== "external") return;
+      probeWs().then((reachable) => {
+        if (stopped) return;
+        if (
+          !reachable &&
+          healthMonitor.getHealth().janus !== HealthState.RECOVERING
+        ) {
+          console.warn("[janus] External Janus unreachable — recovering");
+          healthMonitor.setState("janus", HealthState.RECOVERING);
+          healthMonitor.pushError(
+            "janus",
+            "External Janus unreachable",
+            ErrorSeverity.ERROR
+          );
+          healthMonitor.incrementRestarts("janus");
+          scheduleExternalRecoveryPoll();
+        } else if (reachable) {
+          externalPollTimer = setTimeout(tick, INTERVAL_MS);
+        }
+      });
+    }
+    externalPollTimer = setTimeout(tick, INTERVAL_MS);
+  }
+
+  /** Poll WS until reachable again — only used in external mode. */
+  function scheduleExternalRecoveryPoll(): void {
+    if (stopped) return;
+    const delay = calculateDelay(restartAttempt, resilienceConfig.retry);
+    restartAttempt++;
+    externalPollTimer = setTimeout(async () => {
+      if (stopped) return;
+      const reachable = await probeWs();
+      if (reachable) {
+        console.log("[janus] External Janus reachable again");
+        restartAttempt = 0;
+        healthMonitor.setState("janus", HealthState.HEALTHY);
+        if (crashCallback) crashCallback();
+      } else {
+        scheduleExternalRecoveryPoll();
+      }
+    }, delay);
+  }
+
+  function spawnEmbedded(): void {
+    if (proc) return;
     const configDir = writeConfig();
-    console.log(`[janus] Starting with config dir: ${configDir}`);
+    console.log(`[janus] Starting embedded with config dir: ${configDir}`);
 
     proc = spawn(
       janusBinary!,
@@ -149,15 +200,17 @@ export function createJanusManager(): JanusManager {
       proc = null;
       if (stopped) return;
       const msg = `Janus process exited (code ${code})`;
-      console.log(`[janus] ${msg} — restarting`);
+      console.log(`[janus] ${msg} — restarting embedded`);
       healthMonitor.setState("janus", HealthState.RECOVERING);
       healthMonitor.pushError("janus", msg, ErrorSeverity.ERROR);
       healthMonitor.incrementRestarts("janus");
       const delay = calculateDelay(restartAttempt, resilienceConfig.retry);
       restartAttempt++;
       setTimeout(async () => {
-        const ok = await spawnJanus();
-        if (ok) {
+        if (stopped) return;
+        spawnEmbedded();
+        const ready = await waitForReady();
+        if (ready) {
           restartAttempt = 0;
           healthMonitor.setState("janus", HealthState.HEALTHY);
           if (crashCallback) crashCallback();
@@ -169,21 +222,15 @@ export function createJanusManager(): JanusManager {
       console.error("[janus] Failed to spawn:", err.message);
       proc = null;
     });
-
-    const ready = await waitForReady();
-    if (!ready) {
-      console.error("[janus] Did not become ready in time");
-      if (proc) {
-        proc.kill();
-        proc = null;
-      }
-    }
-    return ready;
   }
 
   return {
     get wsUrl() {
       return wsUrl;
+    },
+
+    get mode(): JanusMode {
+      return janusMode;
     },
 
     onCrash(callback: () => void): void {
@@ -193,36 +240,55 @@ export function createJanusManager(): JanusManager {
     async start(): Promise<boolean> {
       stopped = false;
 
-      // 1. Check if Janus is already running (Docker sidecar or native)
-      const alreadyRunning = await probeWs();
-      if (alreadyRunning) {
-        console.log("[janus] Already running on", wsUrl, "(sidecar/external)");
+      // 1. Quick probe — is Janus already running?
+      const quickProbe = await probeWs(2000);
+      if (quickProbe) {
+        janusMode = "external";
+        console.log("[janus] External Janus detected on", wsUrl);
         healthMonitor.setState("janus", HealthState.HEALTHY);
+        startExternalWatchdog();
         return true;
       }
 
-      // 2. Try to spawn local binary
+      // 2. Local binary available? → embedded mode
       janusBinary = findJanusBinary();
-      if (!janusBinary) {
-        console.log(
-          "[janus] Binary not found — Janus unavailable, falling back to MJPEG only"
-        );
-        return false;
+      if (janusBinary) {
+        janusMode = "embedded";
+        console.log(`[janus] Embedded mode — binary: ${janusBinary}`);
+        spawnEmbedded();
+        const ready = await waitForReady(10000);
+        if (ready) {
+          restartAttempt = 0;
+          healthMonitor.setState("janus", HealthState.HEALTHY);
+          console.log("[janus] Embedded Janus ready on", wsUrl);
+        } else {
+          healthMonitor.setState("janus", HealthState.DOWN);
+        }
+        return ready;
       }
 
-      const ready = await spawnJanus();
-      if (ready) {
-        restartAttempt = 0;
+      // 3. No binary — wait longer for a slow-starting sidecar/container
+      console.log("[janus] No local binary — waiting for external sidecar…");
+      const sidecarReady = await waitForReady(15000);
+      if (sidecarReady) {
+        janusMode = "external";
+        console.log("[janus] External sidecar became ready on", wsUrl);
         healthMonitor.setState("janus", HealthState.HEALTHY);
-        console.log("[janus] Ready on", wsUrl);
-      } else {
-        healthMonitor.setState("janus", HealthState.DOWN);
+        startExternalWatchdog();
+        return true;
       }
-      return ready;
+
+      janusMode = "unavailable";
+      console.log("[janus] Unavailable — falling back to MJPEG only");
+      return false;
     },
 
     stop(): void {
       stopped = true;
+      if (externalPollTimer) {
+        clearTimeout(externalPollTimer);
+        externalPollTimer = null;
+      }
       if (proc) {
         proc.kill();
         proc = null;

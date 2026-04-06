@@ -3,7 +3,7 @@ import { loadConfig, saveConfig, Config } from "../config/config";
 import { createPrusaLinkClient } from "../prusalink/client";
 import { createCamera } from "../camera/camera";
 import { startBridge } from "../bridge";
-import { healthMonitor } from "../lib/health";
+import { healthMonitor, janusMode } from "../lib/health";
 import { HealthState } from "../lib/health-monitor";
 
 const router = Router();
@@ -68,6 +68,7 @@ router.get("/status/stream", (req: Request, res: Response) => {
           available:
             health.janus !== HealthState.DOWN ||
             health.rtp_stream !== HealthState.DOWN,
+          mode: janusMode,
         },
         printer:
           status.status === "fulfilled"

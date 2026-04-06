@@ -20,7 +20,11 @@ export interface StatusEvent {
   prusalink: { connected: boolean; error?: string };
   obico: { connected: boolean };
   camera: { connected: boolean };
-  janus: { connected: boolean; available: boolean };
+  janus: {
+    connected: boolean;
+    available: boolean;
+    mode: "external" | "embedded" | "unavailable";
+  };
   printer: PrinterStatus | null;
   job: JobInfo | null;
 }
