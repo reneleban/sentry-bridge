@@ -6,7 +6,7 @@ import WebSocket from "ws";
 import { calculateDelay } from "../lib/retry";
 import { resilienceConfig } from "../lib/env-config";
 import { healthMonitor } from "../lib/health";
-import { HealthState } from "../lib/health-monitor";
+import { HealthState, ErrorSeverity } from "../lib/health-monitor";
 
 const JANUS_WS_PORT = 8188;
 
@@ -144,8 +144,11 @@ export function createJanusManager(): JanusManager {
     proc.on("close", (code) => {
       proc = null;
       if (stopped) return;
-      console.log(`[janus] Process exited (code ${code}) — restarting`);
+      const msg = `Janus process exited (code ${code})`;
+      console.log(`[janus] ${msg} — restarting`);
       healthMonitor.setState("janus", HealthState.RECOVERING);
+      healthMonitor.pushError("janus", msg, ErrorSeverity.ERROR);
+      healthMonitor.incrementRestarts("janus");
       const delay = calculateDelay(restartAttempt, resilienceConfig.retry);
       restartAttempt++;
       setTimeout(async () => {

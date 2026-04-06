@@ -7,8 +7,8 @@ import {
 } from "./types";
 import { createCircuitBreaker } from "../lib/circuit-breaker";
 import { resilienceConfig } from "../lib/env-config";
-import { healthMonitor } from "../lib/health";
-import { HealthState } from "../lib/health-monitor";
+import { healthMonitor, circuitBreakerRegistry } from "../lib/health";
+import { HealthState, ErrorSeverity } from "../lib/health-monitor";
 
 export interface HttpFetcher {
   fetch(url: string, options?: RequestInit): Promise<Response>;
@@ -26,6 +26,7 @@ export function createPrusaLinkClient(
   const http = fetcher ?? createDigestFetcher(config.username, config.password);
   const base = config.baseUrl.replace(/\/$/, "");
   const cb = createCircuitBreaker(resilienceConfig.circuitBreaker);
+  circuitBreakerRegistry.set("prusalink", cb);
 
   async function get(path: string): Promise<Response> {
     try {
@@ -35,7 +36,15 @@ export function createPrusaLinkClient(
       healthMonitor.setState("prusalink", HealthState.HEALTHY);
       return res;
     } catch (err) {
+      const msg = (err as Error).message;
       healthMonitor.setState("prusalink", HealthState.DOWN);
+      healthMonitor.pushError(
+        "prusalink",
+        msg,
+        msg === "Circuit breaker is OPEN"
+          ? ErrorSeverity.WARN
+          : ErrorSeverity.ERROR
+      );
       throw err;
     }
   }

@@ -33,6 +33,16 @@ export function StatusCard({ status }: Props) {
           <Text size="sm">{t("dashboard.status.obico")}</Text>
           {badge(status?.obico.connected ?? false)}
         </Group>
+        <Group justify="space-between">
+          <Text size="sm">{t("dashboard.status.camera")}</Text>
+          {badge(status?.camera.connected ?? false)}
+        </Group>
+        {status?.janus.available && (
+          <Group justify="space-between">
+            <Text size="sm">{t("dashboard.status.janus")}</Text>
+            {badge(status.janus.connected)}
+          </Group>
+        )}
       </Stack>
     </Card>
   );

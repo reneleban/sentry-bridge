@@ -19,6 +19,8 @@ export interface JobInfo {
 export interface StatusEvent {
   prusalink: { connected: boolean; error?: string };
   obico: { connected: boolean };
+  camera: { connected: boolean };
+  janus: { connected: boolean; available: boolean };
   printer: PrinterStatus | null;
   job: JobInfo | null;
 }
