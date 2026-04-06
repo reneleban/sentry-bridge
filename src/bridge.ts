@@ -6,6 +6,7 @@ import { createObicoAgent } from "./obico/agent";
 import { HttpFetcher } from "./obico/types";
 import { createJanusManager } from "./janus/manager";
 import { createJanusRelay } from "./janus/relay";
+import { setJanusMode } from "./lib/health";
 
 const httpFetcher: HttpFetcher = { fetch: (url, opts) => fetch(url, opts) };
 
@@ -106,6 +107,7 @@ export async function startBridge(port = 3000): Promise<void> {
 
   async function startJanus(): Promise<void> {
     const available = await janusManager.start();
+    setJanusMode(janusManager.mode);
     if (!available) return;
 
     camera.startRtpStream(RTP_PORT);

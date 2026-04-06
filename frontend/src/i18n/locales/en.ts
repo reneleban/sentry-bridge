@@ -67,6 +67,8 @@ export default {
       obico: "Obico",
       camera: "Camera",
       janus: "Janus WebRTC",
+      janus_external: "ext.",
+      janus_embedded: "emb.",
       connected: "Connected",
       disconnected: "Disconnected",
     },
