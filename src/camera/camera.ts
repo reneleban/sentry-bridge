@@ -14,6 +14,8 @@ export function createCamera(config: CameraConfig): CameraModule {
   let mjpegStopped = false;
   let mjpegRestartAttempt = 0;
   let mjpegRestartTimer: ReturnType<typeof setTimeout> | null = null;
+  let mjpegWatchdogTimer: ReturnType<typeof setTimeout> | null = null;
+  const MJPEG_WATCHDOG_MS = 30_000;
 
   let rtpStopped = false;
   let rtpRestartAttempt = 0;
@@ -31,6 +33,20 @@ export function createCamera(config: CameraConfig): CameraModule {
 
   function spawnFfmpeg(args: string[]): ChildProcess {
     return spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
+  }
+
+  function resetMjpegWatchdog(): void {
+    if (mjpegWatchdogTimer) clearTimeout(mjpegWatchdogTimer);
+    mjpegWatchdogTimer = setTimeout(() => {
+      if (mjpegStopped) return;
+      console.warn(
+        "[camera] MJPEG watchdog: no frame for 30s — killing ffmpeg"
+      );
+      if (proc) {
+        proc.kill();
+        proc = null;
+      }
+    }, MJPEG_WATCHDOG_MS);
   }
 
   function spawnMjpeg(): void {
@@ -60,11 +76,16 @@ export function createCamera(config: CameraConfig): CameraModule {
         if (remainder.length > 0) chunks.push(remainder);
         mjpegRestartAttempt = 0;
         healthMonitor.setState("camera", HealthState.HEALTHY);
+        resetMjpegWatchdog();
         emitFrame(frame);
       }
     });
 
     proc.on("close", (code) => {
+      if (mjpegWatchdogTimer) {
+        clearTimeout(mjpegWatchdogTimer);
+        mjpegWatchdogTimer = null;
+      }
       proc = null;
       if (mjpegStopped) return;
       const msg = `MJPEG stream exited (code ${code})`;
@@ -167,6 +188,10 @@ export function createCamera(config: CameraConfig): CameraModule {
       if (mjpegRestartTimer) {
         clearTimeout(mjpegRestartTimer);
         mjpegRestartTimer = null;
+      }
+      if (mjpegWatchdogTimer) {
+        clearTimeout(mjpegWatchdogTimer);
+        mjpegWatchdogTimer = null;
       }
       if (proc) {
         proc.kill();
