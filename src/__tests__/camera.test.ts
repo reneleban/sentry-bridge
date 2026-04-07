@@ -108,6 +108,32 @@ describe("Camera", () => {
     });
   });
 
+  describe("circuit breaker registration", () => {
+    beforeEach(() => {
+      // Ensure clean registry state
+      const { circuitBreakerRegistry } = require("../lib/health");
+      circuitBreakerRegistry.delete("camera");
+    });
+
+    it("registers a circuit breaker under 'camera' when the camera is created", () => {
+      const { circuitBreakerRegistry } = require("../lib/health");
+      const { CircuitState } = require("../lib/circuit-breaker");
+      createCamera(config);
+      const cb = circuitBreakerRegistry.get("camera");
+      expect(cb).toBeDefined();
+      expect(cb!.state).toBe(CircuitState.CLOSED);
+    });
+
+    it("allows reset() on the registered breaker to leave state CLOSED", () => {
+      const { circuitBreakerRegistry } = require("../lib/health");
+      const { CircuitState } = require("../lib/circuit-breaker");
+      createCamera(config);
+      const cb = circuitBreakerRegistry.get("camera")!;
+      cb.reset();
+      expect(cb.state).toBe(CircuitState.CLOSED);
+    });
+  });
+
   describe("start() / stop() / onFrame()", () => {
     it("calls onFrame callback when ffmpeg emits stdout data", (done) => {
       mockSpawn.mockReturnValue(

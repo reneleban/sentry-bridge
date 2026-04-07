@@ -1,8 +1,9 @@
 import { spawn, ChildProcess } from "child_process";
 import { CameraConfig, CameraModule } from "./types";
+import { createCircuitBreaker } from "../lib/circuit-breaker";
 import { calculateDelay } from "../lib/retry";
 import { resilienceConfig } from "../lib/env-config";
-import { healthMonitor } from "../lib/health";
+import { healthMonitor, circuitBreakerRegistry } from "../lib/health";
 import { HealthState, ErrorSeverity } from "../lib/health-monitor";
 
 export function createCamera(config: CameraConfig): CameraModule {
@@ -25,6 +26,9 @@ export function createCamera(config: CameraConfig): CameraModule {
   let rtpRecoverCallback: (() => void) | null = null;
   let rtpWatchdogTimer: ReturnType<typeof setTimeout> | null = null;
   const RTP_WATCHDOG_MS = 30_000;
+
+  const cb = createCircuitBreaker(resilienceConfig.circuitBreaker);
+  circuitBreakerRegistry.set("camera", cb);
 
   function emitFrame(frame: Buffer): void {
     if (frameCallback) frameCallback(frame);
@@ -50,52 +54,75 @@ export function createCamera(config: CameraConfig): CameraModule {
   }
 
   function spawnMjpeg(): void {
-    proc = spawnFfmpeg([
-      "-rtsp_transport",
-      "tcp",
-      "-i",
-      config.rtspUrl,
-      "-vf",
-      "fps=5",
-      "-f",
-      "image2pipe",
-      "-vcodec",
-      "mjpeg",
-      "pipe:1",
-    ]);
+    cb.execute(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          proc = spawnFfmpeg([
+            "-rtsp_transport",
+            "tcp",
+            "-i",
+            config.rtspUrl,
+            "-vf",
+            "fps=5",
+            "-f",
+            "image2pipe",
+            "-vcodec",
+            "mjpeg",
+            "pipe:1",
+          ]);
 
-    const chunks: Buffer[] = [];
-    proc.stdout!.on("data", (chunk: Buffer) => {
-      chunks.push(chunk);
-      const buf = Buffer.concat(chunks);
-      const end = buf.lastIndexOf(Buffer.from([0xff, 0xd9]));
-      if (end !== -1) {
-        const frame = buf.subarray(0, end + 2);
-        chunks.length = 0;
-        const remainder = buf.subarray(end + 2);
-        if (remainder.length > 0) chunks.push(remainder);
-        mjpegRestartAttempt = 0;
-        healthMonitor.setState("camera", HealthState.HEALTHY);
-        resetMjpegWatchdog();
-        emitFrame(frame);
-      }
-    });
+          let firstFrameSeen = false;
+          const chunks: Buffer[] = [];
 
-    proc.on("close", (code) => {
-      if (mjpegWatchdogTimer) {
-        clearTimeout(mjpegWatchdogTimer);
-        mjpegWatchdogTimer = null;
-      }
-      proc = null;
-      if (mjpegStopped) return;
-      const msg = `MJPEG stream exited (code ${code})`;
-      console.log(`[camera] ${msg} — restarting`);
-      healthMonitor.setState("camera", HealthState.RECOVERING);
-      healthMonitor.pushError("camera", msg, ErrorSeverity.ERROR);
-      healthMonitor.incrementRestarts("camera");
-      const delay = calculateDelay(mjpegRestartAttempt, resilienceConfig.retry);
-      mjpegRestartAttempt++;
-      mjpegRestartTimer = setTimeout(() => spawnMjpeg(), delay);
+          proc.stdout!.on("data", (chunk: Buffer) => {
+            chunks.push(chunk);
+            const buf = Buffer.concat(chunks);
+            const end = buf.lastIndexOf(Buffer.from([0xff, 0xd9]));
+            if (end !== -1) {
+              const frame = buf.subarray(0, end + 2);
+              chunks.length = 0;
+              const remainder = buf.subarray(end + 2);
+              if (remainder.length > 0) chunks.push(remainder);
+              mjpegRestartAttempt = 0;
+              healthMonitor.setState("camera", HealthState.HEALTHY);
+              resetMjpegWatchdog();
+              if (!firstFrameSeen) {
+                firstFrameSeen = true;
+                resolve();
+              }
+              emitFrame(frame);
+            }
+          });
+
+          proc.on("close", (code) => {
+            if (mjpegWatchdogTimer) {
+              clearTimeout(mjpegWatchdogTimer);
+              mjpegWatchdogTimer = null;
+            }
+            proc = null;
+            if (mjpegStopped) {
+              if (!firstFrameSeen) resolve(); // clean shutdown before first frame — do not count as CB failure
+              return;
+            }
+            const msg = `MJPEG stream exited (code ${code})`;
+            console.log(`[camera] ${msg} — restarting`);
+            healthMonitor.setState("camera", HealthState.RECOVERING);
+            healthMonitor.pushError("camera", msg, ErrorSeverity.ERROR);
+            healthMonitor.incrementRestarts("camera");
+            const delay = calculateDelay(
+              mjpegRestartAttempt,
+              resilienceConfig.retry
+            );
+            mjpegRestartAttempt++;
+            mjpegRestartTimer = setTimeout(() => spawnMjpeg(), delay);
+            if (!firstFrameSeen) {
+              reject(new Error(msg));
+            }
+          });
+        })
+    ).catch(() => {
+      // CB opened or connect failed — restart scheduling is already handled
+      // by the `close` handler above. Swallow to prevent unhandled rejection.
     });
   }
 
