@@ -33,8 +33,8 @@ export interface JobInfo {
   progress: number;
   timePrinting: number;
   timeRemaining: number;
-  fileName: string;
-  displayName: string;
+  fileName: string | null; // null wenn serieller Druck (kein file-Feld in Response)
+  displayName: string | null; // null wenn serieller Druck
 }
 
 export interface PrinterInfo {

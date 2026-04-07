@@ -113,8 +113,8 @@ export function createPrusaLinkClient(
         progress: body.progress,
         timePrinting: body.time_printing,
         timeRemaining: body.time_remaining,
-        fileName: body.file.name,
-        displayName: body.file.display_name,
+        fileName: body.file?.name ?? null,
+        displayName: body.file?.display_name ?? null,
       };
     },
 

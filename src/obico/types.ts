@@ -154,7 +154,7 @@ export function buildStatusMessage(
       job: {
         file: {
           name: job?.fileName ?? null,
-          path: job ? `/usb/${job.fileName}` : null,
+          path: job?.fileName ? `/usb/${job.fileName}` : null,
           obico_g_code_file_id: null,
         },
       },
