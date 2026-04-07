@@ -12,7 +12,9 @@ import { createObicoAgent } from "./obico/agent";
 import { HttpFetcher } from "./obico/types";
 import { createJanusManager } from "./janus/manager";
 import { createJanusRelay } from "./janus/relay";
-import { setJanusMode } from "./lib/health";
+import { setJanusMode, healthMonitor, circuitBreakerRegistry } from "./lib/health";
+import { HealthState } from "./lib/health-monitor";
+import type { ComponentName } from "./lib/health-monitor";
 
 const httpFetcher: HttpFetcher = { fetch: (url, opts) => fetch(url, opts) };
 
@@ -235,6 +237,96 @@ async function applyConfigChange(newConfig: Config): Promise<void> {
   }
 
   currentConfig = validated;
+}
+
+export type ReconnectTarget = "prusalink" | "obico" | "camera";
+
+export async function reconnectComponent(component: ReconnectTarget): Promise<void> {
+  console.log("[bridge] Reconnecting component:", component);
+
+  if (!currentConfig) {
+    throw new Error("Bridge not running");
+  }
+  if (!state.camera || !state.agent || !state.prusaClient) {
+    throw new Error("Bridge state not initialised");
+  }
+
+  const CB_NAME_MAP: Record<ReconnectTarget, ComponentName> = {
+    prusalink: "prusalink",
+    obico: "obico_ws",
+    camera: "camera",
+  };
+  const cbName = CB_NAME_MAP[component];
+  const cb = circuitBreakerRegistry.get(cbName);
+  if (cb) cb.reset();
+
+  healthMonitor.setState(cbName, HealthState.RECOVERING);
+  healthMonitor.incrementRestarts(cbName);
+
+  if (component === "prusalink") {
+    state.prusaClient = createPrusaLinkClient({
+      baseUrl: currentConfig.prusalink.url,
+      username: currentConfig.prusalink.username,
+      password: currentConfig.prusalink.password,
+    });
+    // Also reconnect the agent so it observes the new prusaClient
+    state.agent.disconnect();
+    state.janusStarted = false;
+    if (state.janusRelay) {
+      state.janusRelay.stop();
+      state.janusRelay = null;
+    }
+    state.agent = createObicoAgent(
+      {
+        serverUrl: currentConfig.obico.serverUrl,
+        apiKey: currentConfig.obico.apiKey,
+        streamUrl: `${getBridgeUrl(currentConfig, currentPort)}/stream`,
+      },
+      httpFetcher,
+      state.prusaClient
+    );
+    registerFrameForwarding(
+      state.camera,
+      state.agent,
+      currentConfig.camera.frameIntervalSeconds * 1000
+    );
+    state.agent.connect(onOpenCallback);
+  } else if (component === "obico") {
+    state.agent.disconnect();
+    state.janusStarted = false;
+    if (state.janusRelay) {
+      state.janusRelay.stop();
+      state.janusRelay = null;
+    }
+    state.agent = createObicoAgent(
+      {
+        serverUrl: currentConfig.obico.serverUrl,
+        apiKey: currentConfig.obico.apiKey,
+        streamUrl: `${getBridgeUrl(currentConfig, currentPort)}/stream`,
+      },
+      httpFetcher,
+      state.prusaClient
+    );
+    registerFrameForwarding(
+      state.camera,
+      state.agent,
+      currentConfig.camera.frameIntervalSeconds * 1000
+    );
+    state.agent.connect(onOpenCallback);
+  } else if (component === "camera") {
+    state.camera.stop();
+    state.camera = createCamera({
+      rtspUrl: currentConfig.camera.rtspUrl,
+      frameIntervalSeconds: currentConfig.camera.frameIntervalSeconds,
+    });
+    setCameraInstance(state.camera);
+    state.camera.start();
+    registerFrameForwarding(
+      state.camera,
+      state.agent,
+      currentConfig.camera.frameIntervalSeconds * 1000
+    );
+  }
 }
 
 async function pollAndSend(): Promise<void> {

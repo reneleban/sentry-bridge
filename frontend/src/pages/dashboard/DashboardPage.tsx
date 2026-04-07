@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
-import { Container, SimpleGrid, Stack, Title } from "@mantine/core";
+import { Container, Stack, Title } from "@mantine/core";
 import { useTranslation } from "react-i18next";
 import { usePrinterStatus } from "./usePrinterStatus";
-import { StatusCard } from "./StatusCard";
+import { HealthCard } from "./HealthCard";
 import { PrinterCard } from "./PrinterCard";
 import { CameraCard } from "./CameraCard";
 import { ConfigCard } from "./ConfigCard";
-import { ResilienceCard } from "./ResilienceCard";
 
 export function DashboardPage() {
   const { t } = useTranslation();
@@ -26,12 +25,9 @@ export function DashboardPage() {
         {printerName ?? t("dashboard.title")}
       </Title>
       <Stack gap="md">
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-          <StatusCard status={status} />
-          <PrinterCard status={status} />
-        </SimpleGrid>
+        <HealthCard />
+        <PrinterCard status={status} />
         <CameraCard />
-        <ResilienceCard />
         <ConfigCard />
       </Stack>
     </Container>

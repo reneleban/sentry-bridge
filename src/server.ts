@@ -4,6 +4,7 @@ import { wizardRouter } from "./routes/wizard";
 import { dashboardRouter } from "./routes/dashboard";
 import { streamRouter } from "./routes/stream";
 import healthRouter from "./routes/health";
+import bridgeRouter from "./routes/bridge";
 
 export const app = express();
 
@@ -11,6 +12,7 @@ app.use(express.json());
 
 app.use("/api/health", healthRouter);
 app.use("/api/wizard", wizardRouter);
+app.use("/api/bridge", bridgeRouter);
 app.use("/api", dashboardRouter);
 app.use("/", streamRouter);
 
