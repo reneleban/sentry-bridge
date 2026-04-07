@@ -11,5 +11,8 @@
   "obico": {
     "serverUrl": "https://app.obico.io",
     "apiKey": ""
+  },
+  "polling": {
+    "statusIntervalMs": 5000
   }
 }

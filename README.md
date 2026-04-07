@@ -124,6 +124,9 @@ The wizard writes `/config/config.json` on the mounted volume. All fields can al
   "obico": {
     "serverUrl": "https://app.obico.io",
     "apiKey": ""
+  },
+  "polling": {
+    "statusIntervalMs": 5000
   }
 }
 ```
@@ -131,6 +134,7 @@ The wizard writes `/config/config.json` on the mounted volume. All fields can al
 - `prusalink` — printer URL, username, and password for HTTP Digest Auth access to PrusaLink
 - `camera` — RTSP stream URL and snapshot interval in seconds
 - `obico` — server URL and pairing token (`apiKey` is empty until the wizard completes pairing)
+- `polling` — polling interval in milliseconds (default: 5000)
 
 ## Setup Wizard
 
@@ -186,7 +190,7 @@ For local development or custom builds:
 
 ### Prerequisites
 
-- Node.js 20+
+- Node.js 22+
 - ffmpeg
 - Docker Desktop (for Janus sidecar on Mac)
 
