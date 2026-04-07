@@ -122,6 +122,22 @@ describe("PrusaLinkClient", () => {
       expect(job!.timePrinting).toBe(1800);
       expect(job!.timeRemaining).toBe(2400);
     });
+
+    it("returns job info with null fileName when file is absent (serial print)", async () => {
+      const serialJobBody = {
+        id: 7,
+        state: "PRINTING",
+        progress: 12.0,
+        time_printing: 300,
+        time_remaining: 1800,
+      }; // kein file-Feld
+      mockFetch.mockResolvedValue(mockResponse(200, serialJobBody));
+      const client = createPrusaLinkClient(config, fetcher);
+      const job = await client.getJob();
+      expect(job).not.toBeNull();
+      expect(job!.fileName).toBeNull();
+      expect(job!.displayName).toBeNull();
+    });
   });
 
   describe("pause()", () => {
