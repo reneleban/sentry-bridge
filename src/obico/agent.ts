@@ -1,4 +1,9 @@
 import WebSocket from "ws";
+import * as nodeHttp from "node:http";
+import * as zlib from "node:zlib";
+import { createReadStream, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join as pathJoin, basename as pathBasename } from "node:path";
 import {
   ObicoAgent,
   ObicoAgentConfig,
@@ -24,6 +29,7 @@ export function createObicoAgent(
   let ws: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let disconnecting = false;
+  let activePrintFileId: number | null = null;
 
   // Janus signaling — Obico sends {"janus": "<json>"} on the agent WS.
   // We forward to local Janus and send responses back on the same WS.
@@ -108,6 +114,11 @@ export function createObicoAgent(
               const msg = JSON.parse(data.toString()) as any;
               if (msg.passthru) handlePassthru(msg.passthru);
               if (msg.janus) handleJanus(msg.janus);
+              if (msg["http.tunnelv2"]) {
+                handleHttpTunnel(msg["http.tunnelv2"]).catch((e) =>
+                  console.error("[obico] handleHttpTunnel failed:", e)
+                );
+              }
             } catch {
               // ignore malformed messages
             }
@@ -151,18 +162,208 @@ export function createObicoAgent(
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function extractArgs(passthru: any): any {
+    if (Array.isArray(passthru.args) && passthru.args.length > 0) return passthru.args[0];
+    if (passthru.kwargs && typeof passthru.kwargs === "object") return passthru.kwargs;
+    return {};
+  }
+
+  function sendPassthruAck(ref: string, ret: unknown): void {
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ passthru: { ref, ret } }));
+    }
+  }
+
+  function sendPassthruError(ref: string, error: string): void {
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ passthru: { ref, error } }));
+    }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function handleStartLocalPrint(passthru: any): Promise<void> {
+    const ref = passthru.ref;
+    const args = extractArgs(passthru);
+    try {
+      if (!args.url || typeof args.url !== "string") {
+        throw new Error("missing url in start_printer_local_print args");
+      }
+      const urlPath = new URL(args.url).pathname;
+      const filename = pathBasename(urlPath);
+      if (!filename) throw new Error("could not derive filename from url");
+      await dispatcher.startPrint(filename);
+      sendPassthruAck(ref, "Success");
+    } catch (err) {
+      sendPassthruError(ref, err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function handleDownloadAndPrint(passthru: any): Promise<void> {
+    const ref = passthru.ref;
+    const args = extractArgs(passthru);
+    let tmpPath: string | null = null;
+    try {
+      const { url, safe_filename, id, filename } = args;
+      if (!url || typeof url !== "string") throw new Error("missing url");
+      if (!safe_filename || typeof safe_filename !== "string") throw new Error("missing safe_filename");
+
+      // SSRF-Mitigation: only https or http from configured Obico server origin
+      const parsed = new URL(url);
+      const obicoOrigin = new URL(config.serverUrl).origin;
+      if (parsed.protocol !== "https:" && parsed.origin !== obicoOrigin) {
+        throw new Error(`unsafe download url (origin mismatch): ${parsed.origin}`);
+      }
+
+      // Path-Traversal-Mitigation: basename
+      const cleanName = pathBasename(safe_filename);
+      if (!cleanName || cleanName === "." || cleanName === "..") {
+        throw new Error("invalid safe_filename after basename");
+      }
+
+      // Download to temp file
+      tmpPath = pathJoin(tmpdir(), `obico-${Date.now()}-${cleanName}`);
+      const res = await http.fetch(url, { method: "GET" });
+      if (!res.ok) throw new Error(`download failed: ${res.status}`);
+      const buf = Buffer.from(await res.arrayBuffer());
+      writeFileSync(tmpPath, buf);
+
+      const { size } = statSync(tmpPath);
+      await new Promise<void>((resolve, reject) => {
+        const readStream = createReadStream(tmpPath!);
+        readStream.on("error", reject);
+        dispatcher.uploadFile(cleanName, readStream, size).then(resolve, reject);
+      });
+      try { unlinkSync(tmpPath); } catch { /* ignore */ }
+      tmpPath = null; // already cleaned up
+
+      await dispatcher.startPrint(cleanName);
+
+      // PRINT-04: track fileId (only download-flow has an ID)
+      if (typeof id === "number") activePrintFileId = id;
+
+      sendPassthruAck(ref, { target_path: filename ?? cleanName });
+    } catch (err) {
+      sendPassthruError(ref, err instanceof Error ? err.message : String(err));
+    } finally {
+      if (tmpPath) {
+        try { unlinkSync(tmpPath); } catch { /* ignore */ }
+      }
+    }
+  }
+
+  function doLocalRequest(
+    port: number,
+    method: string,
+    path: string,
+    headers: Record<string, string>,
+    timeoutMs: number
+  ): Promise<{ status: number; body: Buffer; respHeaders: Record<string, string> }> {
+    return new Promise((resolve, reject) => {
+      const req = nodeHttp.request(
+        { host: "127.0.0.1", port, path, method, headers, timeout: timeoutMs },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (c) => chunks.push(Buffer.from(c)));
+          res.on("end", () => {
+            const respHeaders: Record<string, string> = {};
+            for (const [k, v] of Object.entries(res.headers)) {
+              if (typeof v === "string") respHeaders[k] = v;
+              else if (Array.isArray(v)) respHeaders[k] = v.join(", ");
+            }
+            resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks), respHeaders });
+          });
+          res.on("error", reject);
+        }
+      );
+      req.on("timeout", () => { req.destroy(new Error("timeout")); });
+      req.on("error", reject);
+      req.end();
+    });
+  }
+
+  function sendTunnelResponse(
+    ref: string,
+    status: number,
+    body: Buffer,
+    respHeaders: Record<string, string>
+  ): void {
+    const compressed = body.length >= 1000;
+    const finalContent = compressed ? zlib.deflateSync(body) : body;
+    const payload = {
+      "http.tunnelv2": {
+        ref,
+        response: {
+          status,
+          compressed,
+          content: finalContent.toString("base64"),
+          cookies: [],
+          headers: respHeaders,
+        },
+      },
+    };
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(payload));
+    }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function handleHttpTunnel(tunnel: any): Promise<void> {
+    const ref: string = tunnel.ref;
+    const method: string = (tunnel.method ?? "GET").toUpperCase();
+    const path: string = tunnel.path ?? "/";
+    const headers: Record<string, string> = tunnel.headers ?? {};
+    const timeoutMs = Math.min((tunnel.timeout ?? 10) * 1000, 10_000);
+
+    // EoP-Mitigation (T-13-03): only GET, only /api/*
+    if (method !== "GET") {
+      sendTunnelResponse(ref, 405, Buffer.from("method not allowed"), {});
+      return;
+    }
+    if (!path.startsWith("/api/")) {
+      sendTunnelResponse(ref, 403, Buffer.from("path not allowed"), {});
+      return;
+    }
+
+    const port = config.localPort ?? 3000;
+    try {
+      const { status, body, respHeaders } = await doLocalRequest(port, method, path, headers, timeoutMs);
+      sendTunnelResponse(ref, status, body, respHeaders);
+    } catch (err) {
+      const isTimeout = (err as NodeJS.ErrnoException)?.code === "ETIMEDOUT"
+        || (err as Error).message === "timeout";
+      const code = isTimeout ? 504 : 502;
+      sendTunnelResponse(ref, code, Buffer.from(String(err)), {});
+    }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function handlePassthru(passthru: any): void {
-    if (passthru.target !== "Printer") return;
-    switch (passthru.func) {
-      case "pause":
-        dispatcher.pause().catch(() => undefined);
-        break;
-      case "resume":
-        dispatcher.resume().catch(() => undefined);
-        break;
-      case "cancel":
-        dispatcher.cancel().catch(() => undefined);
-        break;
+    if (passthru.target === "Printer") {
+      switch (passthru.func) {
+        case "pause":
+          dispatcher.pause().catch(() => undefined);
+          break;
+        case "resume":
+          dispatcher.resume().catch(() => undefined);
+          break;
+        case "cancel":
+          dispatcher.cancel().catch(() => undefined);
+          break;
+      }
+      return;
+    }
+    if (passthru.target === "file_operations" && passthru.func === "start_printer_local_print") {
+      handleStartLocalPrint(passthru).catch((e) =>
+        console.error("[obico] handleStartLocalPrint failed:", e)
+      );
+      return;
+    }
+    if (passthru.target === "file_downloader" && passthru.func === "download") {
+      handleDownloadAndPrint(passthru).catch((e) =>
+        console.error("[obico] handleDownloadAndPrint failed:", e)
+      );
+      return;
     }
   }
 
@@ -231,7 +432,11 @@ export function createObicoAgent(
         );
         return;
       }
-      const msg = buildStatusMessage(status, job, config.streamUrl);
+      // PRINT-04: reset fileId when printer becomes IDLE after a print
+      if (status.state === "IDLE" && activePrintFileId !== null) {
+        activePrintFileId = null;
+      }
+      const msg = buildStatusMessage(status, job, config.streamUrl, activePrintFileId);
       const json = JSON.stringify(msg);
       console.log(
         "[obico] sending status:",

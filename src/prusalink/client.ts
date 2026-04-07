@@ -1,5 +1,6 @@
 import DigestFetch from "digest-fetch";
 import {
+  FileEntry,
   JobInfo,
   PrinterStatus,
   PrusaLinkClient,
@@ -9,6 +10,7 @@ import { createCircuitBreaker } from "../lib/circuit-breaker";
 import { resilienceConfig } from "../lib/env-config";
 import { healthMonitor, circuitBreakerRegistry } from "../lib/health";
 import { HealthState, ErrorSeverity } from "../lib/health-monitor";
+import { withRetry } from "../lib/retry";
 
 export interface HttpFetcher {
   fetch(url: string, options?: RequestInit): Promise<Response>;
@@ -28,10 +30,10 @@ export function createPrusaLinkClient(
   const cb = createCircuitBreaker(resilienceConfig.circuitBreaker);
   circuitBreakerRegistry.set("prusalink", cb);
 
-  async function get(path: string): Promise<Response> {
+  async function request(method: string, path: string, opts?: RequestInit): Promise<Response> {
     try {
       const res = await cb.execute(() =>
-        http.fetch(`${base}${path}`, { method: "GET" })
+        http.fetch(`${base}${path}`, { method, ...opts })
       );
       healthMonitor.setState("prusalink", HealthState.HEALTHY);
       return res;
@@ -47,6 +49,10 @@ export function createPrusaLinkClient(
       );
       throw err;
     }
+  }
+
+  function get(path: string): Promise<Response> {
+    return request("GET", path);
   }
 
   async function getJobId(): Promise<number> {
@@ -120,9 +126,7 @@ export function createPrusaLinkClient(
 
     async pause(): Promise<void> {
       const id = await getJobId();
-      const res = await http.fetch(`${base}/api/v1/job/${id}/pause`, {
-        method: "PUT",
-      });
+      const res = await request("PUT", `/api/v1/job/${id}/pause`);
       if (res.status === 409)
         throw new Error("Conflict: invalid state transition");
       if (!res.ok) throw new Error(`pause failed: ${res.status}`);
@@ -130,9 +134,7 @@ export function createPrusaLinkClient(
 
     async resume(): Promise<void> {
       const id = await getJobId();
-      const res = await http.fetch(`${base}/api/v1/job/${id}/resume`, {
-        method: "PUT",
-      });
+      const res = await request("PUT", `/api/v1/job/${id}/resume`);
       if (res.status === 409)
         throw new Error("Conflict: invalid state transition");
       if (!res.ok) throw new Error(`resume failed: ${res.status}`);
@@ -140,12 +142,55 @@ export function createPrusaLinkClient(
 
     async cancel(): Promise<void> {
       const id = await getJobId();
-      const res = await http.fetch(`${base}/api/v1/job/${id}`, {
-        method: "DELETE",
-      });
+      const res = await request("DELETE", `/api/v1/job/${id}`);
       if (res.status === 409)
         throw new Error("Conflict: invalid state transition");
       if (!res.ok) throw new Error(`cancel failed: ${res.status}`);
+    },
+
+    async listFiles(): Promise<FileEntry[]> {
+      const res = await request("GET", "/api/v1/files/usb/");
+      if (!res.ok) throw new Error(`listFiles failed: ${res.status}`);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const body = (await res.json()) as any;
+      const children: any[] = body.children ?? [];
+      return children
+        .filter((f: any) => f.type === "PRINT_FILE")
+        .map((f: any): FileEntry => ({
+          name: f.name,
+          path: `/usb/${f.name}`,
+          size: f.size ?? 0,
+          date: new Date((f.m_timestamp ?? 0) * 1000).toISOString(),
+        }));
+    },
+
+    async uploadFile(filename: string, stream: NodeJS.ReadableStream, size: number): Promise<void> {
+      const res = await request("PUT", `/api/v1/files/usb/${filename}`, {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        body: stream as any,
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "Content-Length": String(size),
+        },
+      });
+      if (!res.ok) throw new Error(`uploadFile failed: ${res.status}`);
+    },
+
+    async startPrint(filename: string): Promise<void> {
+      await withRetry(
+        async () => {
+          const res = await request("HEAD", `/api/v1/files/usb/${filename}`);
+          if (!res.ok) throw new Error(`file not indexed yet: ${res.status}`);
+        },
+        { maxAttempts: 10, baseDelayMs: 500, maxDelayMs: 500, jitter: false }
+      );
+      const res = await request("POST", `/api/v1/files/usb/${filename}`);
+      if (!res.ok) throw new Error(`startPrint failed: ${res.status}`);
+    },
+
+    async deleteFile(filename: string): Promise<void> {
+      const res = await request("DELETE", `/api/v1/files/usb/${filename}`);
+      if (!res.ok) throw new Error(`deleteFile failed: ${res.status}`);
     },
   };
 }

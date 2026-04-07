@@ -1,8 +1,19 @@
 import { WebSocketServer, WebSocket } from "ws";
+import * as http from "node:http";
+import * as zlib from "node:zlib";
 import { createObicoAgent } from "../obico/agent";
 import { ObicoAgentConfig, PrusaLinkCommandDispatcher } from "../obico/types";
 import { PrinterStatus, JobInfo } from "../prusalink/types";
 import { buildStatusMessage } from "../obico/types";
+import { Readable } from "node:stream";
+
+// Mock node:fs so download tests don't touch the real filesystem
+jest.mock("node:fs", () => ({
+  writeFileSync: jest.fn(),
+  createReadStream: jest.fn(() => new Readable({ read() { this.push(null); } })),
+  statSync: jest.fn(() => ({ size: 100 })),
+  unlinkSync: jest.fn(),
+}));
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -28,6 +39,8 @@ const mockDispatcher: PrusaLinkCommandDispatcher = {
   pause: jest.fn().mockResolvedValue(undefined),
   resume: jest.fn().mockResolvedValue(undefined),
   cancel: jest.fn().mockResolvedValue(undefined),
+  startPrint: jest.fn().mockResolvedValue(undefined),
+  uploadFile: jest.fn().mockResolvedValue(undefined),
 };
 
 const idleStatus: PrinterStatus = {
@@ -532,5 +545,705 @@ describe("WebSocket", () => {
       agent.disconnect();
       done();
     }, 200);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Print passthru commands (PRINT-01..04)
+// ──────────────────────────────────────────────────────────────────────────────
+
+describe("Print passthru commands", () => {
+  let wss: WebSocketServer;
+  let port: number;
+  let serverSocket: WebSocket | null = null;
+
+  beforeEach((done) => {
+    port = getPort();
+    serverSocket = null;
+    wss = new WebSocketServer({ port });
+    wss.on("connection", (ws) => {
+      serverSocket = ws;
+    });
+    wss.on("listening", done);
+    jest.clearAllMocks();
+  });
+
+  afterEach((done) => {
+    wss.close(done);
+  });
+
+  function makeAgent() {
+    return createObicoAgent(
+      { serverUrl: `http://localhost:${port}`, apiKey: "key" },
+      mockHttp,
+      mockDispatcher
+    );
+  }
+
+  // Test 1 (PRINT-01 Lokal-ACK): start_printer_local_print → startPrint + ACK
+  it("PRINT-01: start_printer_local_print calls startPrint and sends ACK", (done) => {
+    const agent = makeAgent();
+    agent.connect();
+
+    const received: string[] = [];
+
+    wss.on("connection", (ws) => {
+      ws.on("message", (data) => {
+        received.push(data.toString());
+      });
+      setTimeout(() => {
+        ws.send(
+          JSON.stringify({
+            passthru: {
+              target: "file_operations",
+              func: "start_printer_local_print",
+              ref: "R1",
+              args: [{ url: "http://obico.local/files/foo.gcode", agent_signature: "sig" }],
+            },
+          })
+        );
+      }, 50);
+    });
+
+    setTimeout(() => {
+      expect(mockDispatcher.startPrint).toHaveBeenCalledWith("foo.gcode");
+      const ack = received.find((m) => m.includes('"ref":"R1"'));
+      expect(ack).toBeDefined();
+      const parsed = JSON.parse(ack!);
+      expect(parsed.passthru.ref).toBe("R1");
+      expect(parsed.passthru.ret).toBe("Success");
+      agent.disconnect();
+      done();
+    }, 300);
+  });
+
+  // Test 2 (PRINT-01 Lokal-Error-ACK): startPrint rejects → error ACK
+  it("PRINT-01: sends error ACK when startPrint rejects", (done) => {
+    (mockDispatcher.startPrint as jest.Mock).mockRejectedValueOnce(new Error("printer busy"));
+
+    const agent = makeAgent();
+    agent.connect();
+
+    const received: string[] = [];
+
+    wss.on("connection", (ws) => {
+      ws.on("message", (data) => {
+        received.push(data.toString());
+      });
+      setTimeout(() => {
+        ws.send(
+          JSON.stringify({
+            passthru: {
+              target: "file_operations",
+              func: "start_printer_local_print",
+              ref: "R2",
+              args: [{ url: "http://obico.local/files/test.gcode" }],
+            },
+          })
+        );
+      }, 50);
+    });
+
+    setTimeout(() => {
+      const ack = received.find((m) => m.includes('"ref":"R2"'));
+      expect(ack).toBeDefined();
+      const parsed = JSON.parse(ack!);
+      expect(parsed.passthru.ref).toBe("R2");
+      expect(parsed.passthru.error).toMatch(/printer busy/);
+      agent.disconnect();
+      done();
+    }, 300);
+  });
+
+  // Test 3 (PRINT-02 args/kwargs Tolerance): kwargs instead of args
+  it("PRINT-02: handles kwargs envelope same as args", (done) => {
+    const agent = makeAgent();
+    agent.connect();
+
+    wss.on("connection", (ws) => {
+      setTimeout(() => {
+        ws.send(
+          JSON.stringify({
+            passthru: {
+              target: "file_operations",
+              func: "start_printer_local_print",
+              ref: "R3",
+              kwargs: { url: "http://obico.local/files/kwargs.gcode" },
+            },
+          })
+        );
+      }, 50);
+    });
+
+    setTimeout(() => {
+      expect(mockDispatcher.startPrint).toHaveBeenCalledWith("kwargs.gcode");
+      agent.disconnect();
+      done();
+    }, 300);
+  });
+
+  // Test 4 (PRINT-03 Download-Flow): file_downloader.download → upload + startPrint + ACK + fileId
+  it("PRINT-03: file_downloader.download calls uploadFile + startPrint, sends ACK, sets fileId", (done) => {
+    // Mock http.fetch for the download
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      arrayBuffer: () => Promise.resolve(Buffer.from("fake gcode content").buffer),
+    } as unknown as Response);
+
+    const agent = makeAgent();
+    agent.connect();
+
+    const received: string[] = [];
+
+    wss.on("connection", (ws) => {
+      ws.on("message", (data) => {
+        received.push(data.toString());
+      });
+      setTimeout(() => {
+        ws.send(
+          JSON.stringify({
+            passthru: {
+              target: "file_downloader",
+              func: "download",
+              ref: "R4",
+              args: [
+                {
+                  url: `http://localhost:${port}/files/benchy.gcode`,
+                  safe_filename: "benchy.gcode",
+                  id: 42,
+                  filename: "benchy.gcode",
+                },
+              ],
+            },
+          })
+        );
+      }, 50);
+    });
+
+    setTimeout(() => {
+      expect(mockDispatcher.uploadFile).toHaveBeenCalledWith(
+        "benchy.gcode",
+        expect.anything(),
+        expect.any(Number)
+      );
+      expect(mockDispatcher.startPrint).toHaveBeenCalledWith("benchy.gcode");
+      const ack = received.find((m) => m.includes('"ref":"R4"'));
+      expect(ack).toBeDefined();
+      const parsed = JSON.parse(ack!);
+      expect(parsed.passthru.ref).toBe("R4");
+      expect(parsed.passthru.ret).toEqual({ target_path: "benchy.gcode" });
+      agent.disconnect();
+      done();
+    }, 500);
+  });
+
+  // Test 5 (PRINT-03 Path-Traversal-Mitigation): basename applied to safe_filename
+  it("PRINT-03: path traversal in safe_filename is mitigated via basename", (done) => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      arrayBuffer: () => Promise.resolve(Buffer.from("data").buffer),
+    } as unknown as Response);
+
+    const agent = makeAgent();
+    agent.connect();
+
+    wss.on("connection", (ws) => {
+      setTimeout(() => {
+        ws.send(
+          JSON.stringify({
+            passthru: {
+              target: "file_downloader",
+              func: "download",
+              ref: "R5",
+              args: [
+                {
+                  url: `http://localhost:${port}/files/passwd`,
+                  safe_filename: "../../etc/passwd",
+                  id: 99,
+                  filename: "passwd",
+                },
+              ],
+            },
+          })
+        );
+      }, 50);
+    });
+
+    setTimeout(() => {
+      expect(mockDispatcher.uploadFile).toHaveBeenCalledWith(
+        "passwd",
+        expect.anything(),
+        expect.any(Number)
+      );
+      expect(mockDispatcher.startPrint).toHaveBeenCalledWith("passwd");
+      agent.disconnect();
+      done();
+    }, 500);
+  });
+
+  // Test 6 (PRINT-03 SSRF-Mitigation): non-HTTPS non-Obico-origin URL → error ACK
+  it("PRINT-03: SSRF mitigation rejects non-HTTPS non-Obico-origin URL", (done) => {
+    const agent = makeAgent();
+    agent.connect();
+
+    const received: string[] = [];
+
+    wss.on("connection", (ws) => {
+      ws.on("message", (data) => {
+        received.push(data.toString());
+      });
+      setTimeout(() => {
+        ws.send(
+          JSON.stringify({
+            passthru: {
+              target: "file_downloader",
+              func: "download",
+              ref: "R6",
+              args: [
+                {
+                  url: "http://internal.lan/secret.gcode",
+                  safe_filename: "secret.gcode",
+                  id: 1,
+                  filename: "secret.gcode",
+                },
+              ],
+            },
+          })
+        );
+      }, 50);
+    });
+
+    setTimeout(() => {
+      expect(mockDispatcher.uploadFile).not.toHaveBeenCalled();
+      expect(mockDispatcher.startPrint).not.toHaveBeenCalled();
+      const ack = received.find((m) => m.includes('"ref":"R6"'));
+      expect(ack).toBeDefined();
+      const parsed = JSON.parse(ack!);
+      expect(parsed.passthru.error).toBeDefined();
+      agent.disconnect();
+      done();
+    }, 300);
+  });
+
+  // Test 7 (PRINT-04 fileId in Status): after download-print, sendStatus includes obico_g_code_file_id
+  it("PRINT-04: obico_g_code_file_id is set in status after download-print", (done) => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      arrayBuffer: () => Promise.resolve(Buffer.from("gcode").buffer),
+    } as unknown as Response);
+
+    const agent = makeAgent();
+    agent.connect();
+
+    const received: string[] = [];
+
+    wss.on("connection", (ws) => {
+      ws.on("message", (data) => {
+        received.push(data.toString());
+      });
+      setTimeout(() => {
+        // trigger download
+        ws.send(
+          JSON.stringify({
+            passthru: {
+              target: "file_downloader",
+              func: "download",
+              ref: "R7",
+              args: [
+                {
+                  url: `http://localhost:${port}/f.gcode`,
+                  safe_filename: "f.gcode",
+                  id: 42,
+                  filename: "f.gcode",
+                },
+              ],
+            },
+          })
+        );
+      }, 50);
+    });
+
+    // After download completes, sendStatus should include fileId=42
+    setTimeout(() => {
+      agent.sendStatus(printingStatus, activeJob);
+      setTimeout(() => {
+        const statusMsg = received.find((m) => {
+          try {
+            const p = JSON.parse(m);
+            return p.status !== undefined;
+          } catch {
+            return false;
+          }
+        });
+        expect(statusMsg).toBeDefined();
+        const parsed = JSON.parse(statusMsg!);
+        expect(parsed.status.job.file.obico_g_code_file_id).toBe(42);
+        agent.disconnect();
+        done();
+      }, 100);
+    }, 400);
+  });
+
+  // Test 8 (PRINT-04 Reset bei IDLE): activePrintFileId reset to null on IDLE
+  it("PRINT-04: activePrintFileId reset to null when printer becomes IDLE", (done) => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      arrayBuffer: () => Promise.resolve(Buffer.from("gcode").buffer),
+    } as unknown as Response);
+
+    const agent = makeAgent();
+    agent.connect();
+
+    const received: string[] = [];
+
+    wss.on("connection", (ws) => {
+      ws.on("message", (data) => {
+        received.push(data.toString());
+      });
+      setTimeout(() => {
+        ws.send(
+          JSON.stringify({
+            passthru: {
+              target: "file_downloader",
+              func: "download",
+              ref: "R8",
+              args: [
+                {
+                  url: `http://localhost:${port}/f.gcode`,
+                  safe_filename: "f.gcode",
+                  id: 42,
+                  filename: "f.gcode",
+                },
+              ],
+            },
+          })
+        );
+      }, 50);
+    });
+
+    setTimeout(() => {
+      // Send IDLE status — should reset fileId
+      agent.sendStatus(idleStatus, null);
+      setTimeout(() => {
+        // Send a second status — should now have null fileId
+        agent.sendStatus(printingStatus, activeJob);
+        setTimeout(() => {
+          const statusMsgs = received.filter((m) => {
+            try {
+              return JSON.parse(m).status !== undefined;
+            } catch {
+              return false;
+            }
+          });
+          // The second status message should have null fileId (after IDLE reset)
+          const secondStatus = JSON.parse(statusMsgs[statusMsgs.length - 1]);
+          expect(secondStatus.status.job.file.obico_g_code_file_id).toBeNull();
+          agent.disconnect();
+          done();
+        }, 100);
+      }, 50);
+    }, 400);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// http.tunnelv2 handler (INFRA-02)
+// ──────────────────────────────────────────────────────────────────────────────
+
+describe("http.tunnelv2 handler", () => {
+  let tunnelServer: http.Server;
+  let tunnelPort: number;
+
+  let wss: WebSocketServer;
+  let wsPort: number;
+
+  beforeAll((done) => {
+    // Start a real local HTTP server to proxy to
+    tunnelServer = http.createServer((req, res) => {
+      if (req.url === "/api/files") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ files: [] }));
+        return;
+      }
+      if (req.url === "/api/big") {
+        res.writeHead(200, { "Content-Type": "text/plain" });
+        res.end("X".repeat(2000));
+        return;
+      }
+      if (req.url === "/api/small") {
+        res.writeHead(200, { "Content-Type": "text/plain" });
+        res.end("tiny");
+        return;
+      }
+      if (req.url === "/api/slow") {
+        // Respond after 15s — will hit 10s timeout
+        setTimeout(() => { try { res.end("late"); } catch { /* closed */ } }, 15000);
+        return;
+      }
+      res.writeHead(404);
+      res.end("not found");
+    });
+    tunnelServer.listen(0, "127.0.0.1", () => {
+      tunnelPort = (tunnelServer.address() as { port: number }).port;
+      done();
+    });
+  });
+
+  afterAll((done) => {
+    tunnelServer.close(() => done());
+  });
+
+  beforeEach((done) => {
+    wsPort = getPort();
+    wss = new WebSocketServer({ port: wsPort });
+    wss.on("listening", done);
+    jest.clearAllMocks();
+  });
+
+  afterEach((done) => {
+    wss.close(done);
+  });
+
+  function makeAgent() {
+    return createObicoAgent(
+      {
+        serverUrl: `http://localhost:${wsPort}`,
+        apiKey: "key",
+        localPort: tunnelPort,
+      },
+      mockHttp,
+      mockDispatcher
+    );
+  }
+
+  function waitForTunnelResponse(
+    serverSocket: WebSocket,
+    ref: string,
+    timeoutMs = 12000
+  ): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`Timeout waiting for tunnel response ref=${ref}`)), timeoutMs);
+      serverSocket.on("message", (data) => {
+        try {
+          const msg = JSON.parse(data.toString());
+          if (msg["http.tunnelv2"]?.ref === ref) {
+            clearTimeout(timer);
+            resolve(msg["http.tunnelv2"]);
+          }
+        } catch { /* ignore */ }
+      });
+    });
+  }
+
+  // Test 1: GET /api/files → proxied → response sent back
+  it("INFRA-02 T1: proxies GET /api/files and sends http.tunnelv2 response", (done) => {
+    let serverSocket: WebSocket;
+    wss.on("connection", (ws) => { serverSocket = ws; });
+
+    const agent = makeAgent();
+    agent.connect();
+
+    setTimeout(() => {
+      serverSocket.send(JSON.stringify({
+        "http.tunnelv2": {
+          ref: "T1",
+          method: "GET",
+          path: "/api/files",
+          headers: {},
+          timeout: 10,
+        },
+      }));
+
+      waitForTunnelResponse(serverSocket, "T1").then((tunnel) => {
+        expect(tunnel.ref).toBe("T1");
+        expect(tunnel.response.status).toBe(200);
+        expect(typeof tunnel.response.content).toBe("string");
+        expect(typeof tunnel.response.compressed).toBe("boolean");
+        expect(Array.isArray(tunnel.response.cookies)).toBe(true);
+        agent.disconnect();
+        done();
+      }).catch((err) => { agent.disconnect(); done(err); });
+    }, 50);
+  });
+
+  // Test 2: Body >= 1000 bytes → compressed=true, content = base64(zlib.deflate)
+  it("INFRA-02 T2: compresses body >= 1000 bytes (compressed=true)", (done) => {
+    let serverSocket: WebSocket;
+    wss.on("connection", (ws) => { serverSocket = ws; });
+
+    const agent = makeAgent();
+    agent.connect();
+
+    setTimeout(() => {
+      serverSocket.send(JSON.stringify({
+        "http.tunnelv2": {
+          ref: "T2",
+          method: "GET",
+          path: "/api/big",
+          headers: {},
+          timeout: 10,
+        },
+      }));
+
+      waitForTunnelResponse(serverSocket, "T2").then((tunnel) => {
+        expect(tunnel.response.compressed).toBe(true);
+        // Verify round-trip: base64-decode → zlib.inflateSync → "X".repeat(2000)
+        const decoded = Buffer.from(tunnel.response.content, "base64");
+        const inflated = zlib.inflateSync(decoded).toString();
+        expect(inflated).toBe("X".repeat(2000));
+        agent.disconnect();
+        done();
+      }).catch((err) => { agent.disconnect(); done(err); });
+    }, 50);
+  });
+
+  // Test 3: Body < 1000 bytes → compressed=false
+  it("INFRA-02 T3: does not compress body < 1000 bytes (compressed=false)", (done) => {
+    let serverSocket: WebSocket;
+    wss.on("connection", (ws) => { serverSocket = ws; });
+
+    const agent = makeAgent();
+    agent.connect();
+
+    setTimeout(() => {
+      serverSocket.send(JSON.stringify({
+        "http.tunnelv2": {
+          ref: "T3",
+          method: "GET",
+          path: "/api/small",
+          headers: {},
+          timeout: 10,
+        },
+      }));
+
+      waitForTunnelResponse(serverSocket, "T3").then((tunnel) => {
+        expect(tunnel.response.compressed).toBe(false);
+        const decoded = Buffer.from(tunnel.response.content, "base64").toString();
+        expect(decoded).toBe("tiny");
+        agent.disconnect();
+        done();
+      }).catch((err) => { agent.disconnect(); done(err); });
+    }, 50);
+  });
+
+  // Test 4: method != GET → 405, no HTTP call made
+  it("INFRA-02 T4: rejects non-GET method with 405 (no HTTP call)", (done) => {
+    let serverSocket: WebSocket;
+    wss.on("connection", (ws) => { serverSocket = ws; });
+
+    const agent = makeAgent();
+    agent.connect();
+
+    setTimeout(() => {
+      serverSocket.send(JSON.stringify({
+        "http.tunnelv2": {
+          ref: "T4",
+          method: "POST",
+          path: "/api/files",
+          headers: {},
+          timeout: 10,
+        },
+      }));
+
+      waitForTunnelResponse(serverSocket, "T4").then((tunnel) => {
+        expect(tunnel.response.status).toBe(405);
+        agent.disconnect();
+        done();
+      }).catch((err) => { agent.disconnect(); done(err); });
+    }, 50);
+  });
+
+  // Test 5: path not starting with /api/ → 403, no HTTP call
+  it("INFRA-02 T5: rejects path outside /api/ with 403", (done) => {
+    let serverSocket: WebSocket;
+    wss.on("connection", (ws) => { serverSocket = ws; });
+
+    const agent = makeAgent();
+    agent.connect();
+
+    setTimeout(() => {
+      serverSocket.send(JSON.stringify({
+        "http.tunnelv2": {
+          ref: "T5",
+          method: "GET",
+          path: "/etc/passwd",
+          headers: {},
+          timeout: 10,
+        },
+      }));
+
+      waitForTunnelResponse(serverSocket, "T5").then((tunnel) => {
+        expect(tunnel.response.status).toBe(403);
+        agent.disconnect();
+        done();
+      }).catch((err) => { agent.disconnect(); done(err); });
+    }, 50);
+  });
+
+  // Test 6: timeout — slow endpoint → 504 within ~10s
+  it("INFRA-02 T6: returns 504 when local HTTP request times out", (done) => {
+    let serverSocket: WebSocket;
+    wss.on("connection", (ws) => { serverSocket = ws; });
+
+    const agent = makeAgent();
+    agent.connect();
+
+    setTimeout(() => {
+      serverSocket.send(JSON.stringify({
+        "http.tunnelv2": {
+          ref: "T6",
+          method: "GET",
+          path: "/api/slow",
+          headers: {},
+          timeout: 10,
+        },
+      }));
+
+      waitForTunnelResponse(serverSocket, "T6", 12000).then((tunnel) => {
+        expect(tunnel.response.status).toBe(504);
+        agent.disconnect();
+        done();
+      }).catch((err) => { agent.disconnect(); done(err); });
+    }, 50);
+  }, 15000);
+
+  // Test 7: unreachable port → 502
+  it("INFRA-02 T7: returns 502 when local HTTP server is unreachable", (done) => {
+    let serverSocket: WebSocket;
+    wss.on("connection", (ws) => { serverSocket = ws; });
+
+    // Create agent with a port nobody is listening on
+    const badAgent = createObicoAgent(
+      {
+        serverUrl: `http://localhost:${wsPort}`,
+        apiKey: "key",
+        localPort: 19999, // nothing listening here
+      },
+      mockHttp,
+      mockDispatcher
+    );
+    badAgent.connect();
+
+    setTimeout(() => {
+      serverSocket.send(JSON.stringify({
+        "http.tunnelv2": {
+          ref: "T7",
+          method: "GET",
+          path: "/api/files",
+          headers: {},
+          timeout: 5,
+        },
+      }));
+
+      waitForTunnelResponse(serverSocket, "T7").then((tunnel) => {
+        expect(tunnel.response.status).toBe(502);
+        badAgent.disconnect();
+        done();
+      }).catch((err) => { badAgent.disconnect(); done(err); });
+    }, 50);
   });
 });
