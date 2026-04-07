@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { loadConfig, saveConfig, isConfigured } from "../config/config";
+import { loadConfig, saveConfig, isConfigured, configEmitter, Config } from "../config/config";
 
 const validConfig = {
   prusalink: {
@@ -89,5 +89,37 @@ describe("isConfigured()", () => {
       process.env.CONFIG_PATH = filePath;
       expect(isConfigured()).toBe(true);
     });
+  });
+});
+
+describe("configEmitter", () => {
+  it("emits 'config-changed' with the new config after saveConfig", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "obico-test-"));
+    const filePath = path.join(dir, "config.json");
+    process.env.CONFIG_PATH = filePath;
+    const received: Config[] = [];
+    const handler = (cfg: Config) => received.push(cfg);
+    configEmitter.on("config-changed", handler);
+    try {
+      saveConfig(validConfig);
+      expect(received).toHaveLength(1);
+      expect(received[0].prusalink.url).toBe("http://192.168.1.50");
+    } finally {
+      configEmitter.off("config-changed", handler);
+      fs.rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("does not emit when fs.writeFileSync throws", () => {
+    process.env.CONFIG_PATH = "/nonexistent-dir/config.json";
+    const received: Config[] = [];
+    const handler = (cfg: Config) => received.push(cfg);
+    configEmitter.on("config-changed", handler);
+    try {
+      expect(() => saveConfig(validConfig)).toThrow();
+      expect(received).toHaveLength(0);
+    } finally {
+      configEmitter.off("config-changed", handler);
+    }
   });
 });

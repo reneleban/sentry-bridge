@@ -173,9 +173,17 @@ export function createObicoAgent(
       return body.code as string;
     },
 
-    async waitForPairing(serverUrl: string, code: string): Promise<string> {
+    async waitForPairing(
+      serverUrl: string,
+      code: string,
+      timeoutMs = 120_000
+    ): Promise<string> {
+      const deadline = Date.now() + timeoutMs;
       const url = `${apiUrl(serverUrl, "/api/v1/octo/verify/")}?code=${code}`;
       for (;;) {
+        if (Date.now() >= deadline) {
+          throw new Error("Pairing timed out after 120s");
+        }
         const res = await http.fetch(url, { method: "POST" });
         if (res.status === 410) throw new Error("Pairing code expired");
         if (res.ok) {
