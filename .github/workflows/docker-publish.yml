@@ -4,8 +4,6 @@ on:
   push:
     tags:
       - "v*.*.*"
-    branches:
-      - main
 
 jobs:
   build:
@@ -25,11 +23,7 @@ jobs:
       - name: Compute tags
         id: meta
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            echo "tags=rleban/obico-prusalink-bridge:${GITHUB_REF_NAME},rleban/obico-prusalink-bridge:latest" >> $GITHUB_OUTPUT
-          else
-            echo "tags=rleban/obico-prusalink-bridge:latest" >> $GITHUB_OUTPUT
-          fi
+          echo "tags=rleban/obico-prusalink-bridge:${GITHUB_REF_NAME},rleban/obico-prusalink-bridge:latest" >> $GITHUB_OUTPUT
 
       - name: Build and push
         uses: docker/build-push-action@v6
