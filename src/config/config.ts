@@ -10,6 +10,7 @@ export interface Config {
   camera: { rtspUrl: string; frameIntervalSeconds: number };
   obico: { serverUrl: string; apiKey: string };
   polling: { statusIntervalMs: number };
+  shutdown?: { ffmpegKillTimeoutSeconds: number };
   bridgeUrl?: string;
 }
 

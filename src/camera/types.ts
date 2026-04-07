@@ -6,6 +6,8 @@ export interface CameraConfig {
 export interface CameraModule {
   start(): void;
   stop(): void;
+  /** Graceful ffmpeg teardown: SIGINT, then SIGKILL after timeoutMs. Resolves when proc exits or fallback fires. */
+  stopGracefully(timeoutMs: number): Promise<void>;
   onFrame(callback: (frame: Buffer) => void): void;
   subscribe(id: symbol, callback: (frame: Buffer) => void): void;
   unsubscribe(id: symbol): void;

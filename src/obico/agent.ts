@@ -148,14 +148,14 @@ export function createObicoAgent(
       openWebSocket(wsUrl(config.serverUrl));
     },
 
-    disconnect(): void {
+    disconnect(code: number = 1000): void {
       disconnecting = true;
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
       }
       if (ws) {
-        ws.close();
+        ws.close(code);
         ws = null;
       }
       healthMonitor.setState("obico_ws", HealthState.DOWN);
