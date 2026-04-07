@@ -1,5 +1,6 @@
 import DigestFetch from "digest-fetch";
 import {
+  FileEntry,
   JobInfo,
   PrinterStatus,
   PrusaLinkClient,
@@ -9,6 +10,7 @@ import { createCircuitBreaker } from "../lib/circuit-breaker";
 import { resilienceConfig } from "../lib/env-config";
 import { healthMonitor, circuitBreakerRegistry } from "../lib/health";
 import { HealthState, ErrorSeverity } from "../lib/health-monitor";
+import { withRetry } from "../lib/retry";
 
 export interface HttpFetcher {
   fetch(url: string, options?: RequestInit): Promise<Response>;
@@ -28,10 +30,10 @@ export function createPrusaLinkClient(
   const cb = createCircuitBreaker(resilienceConfig.circuitBreaker);
   circuitBreakerRegistry.set("prusalink", cb);
 
-  async function get(path: string): Promise<Response> {
+  async function request(method: string, path: string, opts?: RequestInit): Promise<Response> {
     try {
       const res = await cb.execute(() =>
-        http.fetch(`${base}${path}`, { method: "GET" })
+        http.fetch(`${base}${path}`, { method, ...opts })
       );
       healthMonitor.setState("prusalink", HealthState.HEALTHY);
       return res;
@@ -47,6 +49,10 @@ export function createPrusaLinkClient(
       );
       throw err;
     }
+  }
+
+  function get(path: string): Promise<Response> {
+    return request("GET", path);
   }
 
   async function getJobId(): Promise<number> {
@@ -120,9 +126,7 @@ export function createPrusaLinkClient(
 
     async pause(): Promise<void> {
       const id = await getJobId();
-      const res = await http.fetch(`${base}/api/v1/job/${id}/pause`, {
-        method: "PUT",
-      });
+      const res = await request("PUT", `/api/v1/job/${id}/pause`);
       if (res.status === 409)
         throw new Error("Conflict: invalid state transition");
       if (!res.ok) throw new Error(`pause failed: ${res.status}`);
@@ -130,9 +134,7 @@ export function createPrusaLinkClient(
 
     async resume(): Promise<void> {
       const id = await getJobId();
-      const res = await http.fetch(`${base}/api/v1/job/${id}/resume`, {
-        method: "PUT",
-      });
+      const res = await request("PUT", `/api/v1/job/${id}/resume`);
       if (res.status === 409)
         throw new Error("Conflict: invalid state transition");
       if (!res.ok) throw new Error(`resume failed: ${res.status}`);
@@ -140,12 +142,26 @@ export function createPrusaLinkClient(
 
     async cancel(): Promise<void> {
       const id = await getJobId();
-      const res = await http.fetch(`${base}/api/v1/job/${id}`, {
-        method: "DELETE",
-      });
+      const res = await request("DELETE", `/api/v1/job/${id}`);
       if (res.status === 409)
         throw new Error("Conflict: invalid state transition");
       if (!res.ok) throw new Error(`cancel failed: ${res.status}`);
+    },
+
+    async listFiles(): Promise<FileEntry[]> {
+      throw new Error("not implemented");
+    },
+
+    async uploadFile(_filename: string, _stream: NodeJS.ReadableStream, _size: number): Promise<void> {
+      throw new Error("not implemented");
+    },
+
+    async startPrint(_filename: string): Promise<void> {
+      throw new Error("not implemented");
+    },
+
+    async deleteFile(_filename: string): Promise<void> {
+      throw new Error("not implemented");
     },
   };
 }
