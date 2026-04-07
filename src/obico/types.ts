@@ -96,6 +96,11 @@ export interface ObicoAgent {
   fetchPrinterId(): Promise<number | null>;
   /** PATCH agent_name + agent_version so Obico frontend enables WebRTC. */
   updateAgentInfo(): Promise<void>;
+  /**
+   * Set the local Janus WS URL so the agent can forward Janus signaling messages
+   * that Obico sends via the main agent WS ({@code /ws/dev/}).
+   */
+  setJanusUrl(url: string): void;
 }
 
 export function buildStatusMessage(

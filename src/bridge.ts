@@ -110,6 +110,8 @@ export async function startBridge(port = 3000): Promise<void> {
     setJanusMode(janusManager.mode);
     if (!available) return;
 
+    agent.setJanusUrl(janusManager.wsUrl);
+
     camera.startRtpStream(RTP_PORT);
 
     // When Janus crashes and restarts, rebuild RTP stream + relay
