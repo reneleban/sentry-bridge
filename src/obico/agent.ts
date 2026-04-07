@@ -1,4 +1,6 @@
 import WebSocket from "ws";
+import * as nodeHttp from "node:http";
+import * as zlib from "node:zlib";
 import { createReadStream, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as pathJoin, basename as pathBasename } from "node:path";
@@ -112,6 +114,11 @@ export function createObicoAgent(
               const msg = JSON.parse(data.toString()) as any;
               if (msg.passthru) handlePassthru(msg.passthru);
               if (msg.janus) handleJanus(msg.janus);
+              if (msg["http.tunnelv2"]) {
+                handleHttpTunnel(msg["http.tunnelv2"]).catch((e) =>
+                  console.error("[obico] handleHttpTunnel failed:", e)
+                );
+              }
             } catch {
               // ignore malformed messages
             }
@@ -242,6 +249,91 @@ export function createObicoAgent(
       if (tmpPath) {
         try { unlinkSync(tmpPath); } catch { /* ignore */ }
       }
+    }
+  }
+
+  function doLocalRequest(
+    port: number,
+    method: string,
+    path: string,
+    headers: Record<string, string>,
+    timeoutMs: number
+  ): Promise<{ status: number; body: Buffer; respHeaders: Record<string, string> }> {
+    return new Promise((resolve, reject) => {
+      const req = nodeHttp.request(
+        { host: "127.0.0.1", port, path, method, headers, timeout: timeoutMs },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (c) => chunks.push(Buffer.from(c)));
+          res.on("end", () => {
+            const respHeaders: Record<string, string> = {};
+            for (const [k, v] of Object.entries(res.headers)) {
+              if (typeof v === "string") respHeaders[k] = v;
+              else if (Array.isArray(v)) respHeaders[k] = v.join(", ");
+            }
+            resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks), respHeaders });
+          });
+          res.on("error", reject);
+        }
+      );
+      req.on("timeout", () => { req.destroy(new Error("timeout")); });
+      req.on("error", reject);
+      req.end();
+    });
+  }
+
+  function sendTunnelResponse(
+    ref: string,
+    status: number,
+    body: Buffer,
+    respHeaders: Record<string, string>
+  ): void {
+    const compressed = body.length >= 1000;
+    const finalContent = compressed ? zlib.deflateSync(body) : body;
+    const payload = {
+      "http.tunnelv2": {
+        ref,
+        response: {
+          status,
+          compressed,
+          content: finalContent.toString("base64"),
+          cookies: [],
+          headers: respHeaders,
+        },
+      },
+    };
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(payload));
+    }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function handleHttpTunnel(tunnel: any): Promise<void> {
+    const ref: string = tunnel.ref;
+    const method: string = (tunnel.method ?? "GET").toUpperCase();
+    const path: string = tunnel.path ?? "/";
+    const headers: Record<string, string> = tunnel.headers ?? {};
+    const timeoutMs = Math.min((tunnel.timeout ?? 10) * 1000, 10_000);
+
+    // EoP-Mitigation (T-13-03): only GET, only /api/*
+    if (method !== "GET") {
+      sendTunnelResponse(ref, 405, Buffer.from("method not allowed"), {});
+      return;
+    }
+    if (!path.startsWith("/api/")) {
+      sendTunnelResponse(ref, 403, Buffer.from("path not allowed"), {});
+      return;
+    }
+
+    const port = config.localPort ?? 3000;
+    try {
+      const { status, body, respHeaders } = await doLocalRequest(port, method, path, headers, timeoutMs);
+      sendTunnelResponse(ref, status, body, respHeaders);
+    } catch (err) {
+      const isTimeout = (err as NodeJS.ErrnoException)?.code === "ETIMEDOUT"
+        || (err as Error).message === "timeout";
+      const code = isTimeout ? 504 : 502;
+      sendTunnelResponse(ref, code, Buffer.from(String(err)), {});
     }
   }
 

@@ -4,6 +4,7 @@ export interface ObicoAgentConfig {
   serverUrl: string;
   apiKey: string;
   streamUrl?: string;
+  localPort?: number;
 }
 
 export interface HttpFetcher {
