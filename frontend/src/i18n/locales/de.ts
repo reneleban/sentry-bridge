@@ -66,8 +66,16 @@ export default {
       heading: "Verbindungsstatus",
       prusalink: "PrusaLink",
       obico: "Obico",
+      camera: "Kamera",
+      janus: "Janus WebRTC",
+      janus_hosted: "hosted",
+      janus_bundled: "bundled",
       connected: "Verbunden",
       disconnected: "Getrennt",
+    },
+    resilience: {
+      heading: "Resilience",
+      loading: "Lade…",
     },
     printer: {
       heading: "Drucker",
@@ -92,6 +100,9 @@ export default {
     },
     config: {
       heading: "Konfiguration",
+      name: "Druckername",
+      name_placeholder: "Mein Drucker",
+      name_hint: "Leer lassen um den Hostnamen von PrusaLink zu verwenden",
       prusalink_url: "PrusaLink URL",
       username: "Benutzername",
       password: "Passwort",

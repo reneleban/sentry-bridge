@@ -116,7 +116,7 @@ describe("Camera", () => {
       camera.start();
       expect(mockSpawn).toHaveBeenCalledWith(
         "ffmpeg",
-        expect.arrayContaining([`fps=1`]),
+        expect.arrayContaining([`fps=5`]),
         expect.anything()
       );
       camera.stop();

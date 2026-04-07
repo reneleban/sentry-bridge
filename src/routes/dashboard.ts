@@ -3,6 +3,8 @@ import { loadConfig, saveConfig, Config } from "../config/config";
 import { createPrusaLinkClient } from "../prusalink/client";
 import { createCamera } from "../camera/camera";
 import { startBridge } from "../bridge";
+import { healthMonitor, janusMode } from "../lib/health";
+import { HealthState } from "../lib/health-monitor";
 
 const router = Router();
 
@@ -44,6 +46,7 @@ router.get("/status/stream", (req: Request, res: Response) => {
         client.getJob(),
       ]);
 
+      const health = healthMonitor.getHealth();
       send("status", {
         prusalink: {
           connected:
@@ -55,7 +58,17 @@ router.get("/status/stream", (req: Request, res: Response) => {
               : "Request failed",
         },
         obico: {
-          connected: !!(config.obico?.serverUrl && config.obico?.apiKey),
+          connected: health.obico_ws === HealthState.HEALTHY,
+        },
+        camera: {
+          connected: health.camera === HealthState.HEALTHY,
+        },
+        janus: {
+          connected: health.janus_relay === HealthState.HEALTHY,
+          available:
+            health.janus !== HealthState.DOWN ||
+            health.rtp_stream !== HealthState.DOWN,
+          mode: janusMode,
         },
         printer:
           status.status === "fulfilled"
@@ -91,6 +104,29 @@ router.get("/status/stream", (req: Request, res: Response) => {
   poll();
   const interval = setInterval(poll, 5000);
   req.on("close", () => clearInterval(interval));
+});
+
+// ── Printer info: GET /api/printer/info ───────────────────────────────────
+
+router.get("/printer/info", async (_req: Request, res: Response) => {
+  try {
+    const config = loadConfig();
+    if (config.name) {
+      res.json({ name: config.name });
+      return;
+    }
+    const client = createPrusaLinkClient({
+      baseUrl: config.prusalink.url,
+      username: config.prusalink.username,
+      password: config.prusalink.password,
+    });
+    const info = await client.getInfo();
+    res.json({ name: info.hostname });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Failed to fetch printer info";
+    res.status(502).json({ message });
+  }
 });
 
 // ── Camera snapshot: /api/camera/snapshot ─────────────────────────────────
@@ -160,6 +196,7 @@ router.post("/setup/save", (req: Request, res: Response) => {
 
   try {
     saveConfig({
+      name: body.name || undefined,
       prusalink: body.prusalink,
       camera: {
         rtspUrl: body.camera.rtspUrl,

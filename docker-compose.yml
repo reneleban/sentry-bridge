@@ -1,11 +1,37 @@
 services:
   bridge:
     image: reneleban/obico-prusalink-bridge:latest
+    container_name: prubico_bridge
+    build: .
     ports:
       - "${PORT:-3000}:3000"
+      - "10100-10200:10100-10200/udp" # WebRTC ICE media (browser ↔ Janus)
     volumes:
       - ./config:/config
     environment:
       - PORT=3000
       - CONFIG_PATH=/config/config.json
+      # Resilience — override defaults from .env.example as needed
+      - CIRCUIT_BREAKER_THRESHOLD=5
+      - CIRCUIT_BREAKER_RESET_TIMEOUT_MS=60000
+      - RETRY_BASE_DELAY_MS=1000
+      - RETRY_MAX_DELAY_MS=30000
+      - HEALTHCHECK_CRITICAL_TIMEOUT_MS=120000
+      # Janus mode: bundled (bridge manages Janus binary) | hosted (external/sidecar) | auto
+      - JANUS_MODE=bundled
+      # Janus log verbosity: 0=Fatal 1=Err 2=Warn 3=Info 4=Verbose 5=Huge (default: 2)
+      - JANUS_DEBUG_LEVEL=2
+      # Host LAN IP — Janus advertises this as ICE candidate so browser can reach it.
+      # Required for WebRTC to work. Set to the IP of the machine running Docker.
+      - JANUS_HOST_IP=${JANUS_HOST_IP:-}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "fetch(''http://localhost:3000/api/health/live'').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"',
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
     restart: unless-stopped

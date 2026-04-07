@@ -1,0 +1,6 @@
+general: {
+	json = "indented"
+	base_path = "/janus"
+	http = false
+	https = false
+}

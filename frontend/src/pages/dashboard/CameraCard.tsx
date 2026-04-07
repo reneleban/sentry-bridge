@@ -14,6 +14,13 @@ export function CameraCard() {
     return () => clearTimeout(timer);
   }, []);
 
+  // Auto-retry when stream errors — camera may have recovered after a restart
+  useEffect(() => {
+    if (!error) return;
+    const timer = setTimeout(() => setError(false), 15000);
+    return () => clearTimeout(timer);
+  }, [error]);
+
   return (
     <Card withBorder radius="md" p="md">
       <Title order={5} mb="sm">

@@ -1,4 +1,8 @@
 import WebSocket from "ws";
+import { calculateDelay } from "../lib/retry";
+import { resilienceConfig } from "../lib/env-config";
+import { healthMonitor } from "../lib/health";
+import { HealthState, ErrorSeverity } from "../lib/health-monitor";
 
 export interface JanusRelay {
   start(): void;
@@ -24,6 +28,7 @@ export function createJanusRelay(
   let janusWs: WebSocket | null = null;
   let obicoWs: WebSocket | null = null;
   let stopped = false;
+  let reconnectAttempt = 0;
 
   // Token-based URL path: /ws/token/janus/{token}/ (JanusWebConsumer, no Auth header needed)
   const obicoUrl =
@@ -36,7 +41,11 @@ export function createJanusRelay(
     janusWs = new WebSocket(janusWsUrl, "janus-protocol");
     obicoWs = new WebSocket(obicoUrl, "janus-protocol");
 
-    janusWs.on("open", () => console.log("[janus-relay] Janus WS open"));
+    janusWs.on("open", () => {
+      console.log("[janus-relay] Janus WS open");
+      reconnectAttempt = 0;
+      healthMonitor.setState("janus_relay", HealthState.HEALTHY);
+    });
     obicoWs.on("open", () => console.log("[janus-relay] Obico WS open"));
 
     // Janus → Obico
@@ -63,7 +72,15 @@ export function createJanusRelay(
     janusWs.on("close", () => {
       console.log("[janus-relay] Janus WS closed");
       obicoWs?.close();
-      if (!stopped) setTimeout(connect, 3000);
+      if (!stopped) {
+        const msg = "Janus WS connection lost";
+        healthMonitor.setState("janus_relay", HealthState.RECOVERING);
+        healthMonitor.pushError("janus_relay", msg, ErrorSeverity.WARN);
+        healthMonitor.incrementRestarts("janus_relay");
+        const delay = calculateDelay(reconnectAttempt, resilienceConfig.retry);
+        reconnectAttempt++;
+        setTimeout(connect, delay);
+      }
     });
 
     obicoWs.on("close", () => {
@@ -75,6 +92,7 @@ export function createJanusRelay(
   return {
     start(): void {
       stopped = false;
+      reconnectAttempt = 0;
       connect();
     },
 
@@ -84,6 +102,7 @@ export function createJanusRelay(
       obicoWs?.close();
       janusWs = null;
       obicoWs = null;
+      healthMonitor.setState("janus_relay", HealthState.DOWN);
     },
   };
 }

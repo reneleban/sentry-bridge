@@ -3,15 +3,13 @@ import path from "path";
 import { wizardRouter } from "./routes/wizard";
 import { dashboardRouter } from "./routes/dashboard";
 import { streamRouter } from "./routes/stream";
+import healthRouter from "./routes/health";
 
 export const app = express();
 
 app.use(express.json());
 
-app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok" });
-});
-
+app.use("/api/health", healthRouter);
 app.use("/api/wizard", wizardRouter);
 app.use("/api", dashboardRouter);
 app.use("/", streamRouter);

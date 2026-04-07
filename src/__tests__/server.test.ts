@@ -2,10 +2,23 @@ import request from "supertest";
 import { app } from "../server";
 
 describe("GET /api/health", () => {
-  it("returns status ok", async () => {
+  it("returns component health detail", async () => {
     const res = await request(app).get("/api/health");
     expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("overall");
+    expect(res.body).toHaveProperty("components");
+  });
+
+  it("/live returns 200", async () => {
+    const res = await request(app).get("/api/health/live");
+    expect(res.status).toBe(200);
     expect(res.body).toEqual({ status: "ok" });
+  });
+
+  it("/ready returns 200 when no critical component is down", async () => {
+    const res = await request(app).get("/api/health/ready");
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("status");
   });
 });
 

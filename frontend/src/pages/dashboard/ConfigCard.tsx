@@ -15,6 +15,7 @@ import { IconCheck, IconSettings } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
 
 interface ConfigForm {
+  name: string;
   prusaLinkUrl: string;
   username: string;
   password: string;
@@ -31,6 +32,7 @@ export function ConfigCard() {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<ConfigForm>({
+    name: "",
     prusaLinkUrl: "",
     username: "",
     password: "",
@@ -49,6 +51,7 @@ export function ConfigCard() {
       .then((cfg) => {
         if (!cfg) return;
         setForm({
+          name: cfg.name ?? "",
           prusaLinkUrl: cfg.prusalink?.url ?? "",
           username: cfg.prusalink?.username ?? "",
           password: cfg.prusalink?.password ?? "",
@@ -74,6 +77,7 @@ export function ConfigCard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          name: form.name || undefined,
           prusalink: {
             url: form.prusaLinkUrl,
             username: form.username,
@@ -114,6 +118,13 @@ export function ConfigCard() {
       </Group>
       <Collapse expanded={open}>
         <Stack gap="sm" mt="md">
+          <TextInput
+            label={t("dashboard.config.name")}
+            value={form.name}
+            onChange={(e) => patch("name", e.currentTarget.value)}
+            placeholder={t("dashboard.config.name_placeholder")}
+            description={t("dashboard.config.name_hint")}
+          />
           <TextInput
             label={t("dashboard.config.prusalink_url")}
             value={form.prusaLinkUrl}
