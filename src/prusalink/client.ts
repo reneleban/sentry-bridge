@@ -149,19 +149,40 @@ export function createPrusaLinkClient(
     },
 
     async listFiles(): Promise<FileEntry[]> {
-      throw new Error("not implemented");
+      const res = await request("GET", "/api/v1/files/usb/");
+      if (!res.ok) throw new Error(`listFiles failed: ${res.status}`);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const body = (await res.json()) as any;
+      const children: any[] = body.children ?? [];
+      return children
+        .filter((f: any) => f.type === "PRINT_FILE")
+        .map((f: any): FileEntry => ({
+          name: f.name,
+          path: `/usb/${f.name}`,
+          size: f.size ?? 0,
+          date: new Date((f.m_timestamp ?? 0) * 1000).toISOString(),
+        }));
     },
 
-    async uploadFile(_filename: string, _stream: NodeJS.ReadableStream, _size: number): Promise<void> {
-      throw new Error("not implemented");
+    async uploadFile(filename: string, stream: NodeJS.ReadableStream, size: number): Promise<void> {
+      const res = await request("PUT", `/api/v1/files/usb/${filename}`, {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        body: stream as any,
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "Content-Length": String(size),
+        },
+      });
+      if (!res.ok) throw new Error(`uploadFile failed: ${res.status}`);
     },
 
     async startPrint(_filename: string): Promise<void> {
       throw new Error("not implemented");
     },
 
-    async deleteFile(_filename: string): Promise<void> {
-      throw new Error("not implemented");
+    async deleteFile(filename: string): Promise<void> {
+      const res = await request("DELETE", `/api/v1/files/usb/${filename}`);
+      if (!res.ok) throw new Error(`deleteFile failed: ${res.status}`);
     },
   };
 }
