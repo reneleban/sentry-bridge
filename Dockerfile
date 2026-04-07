@@ -31,6 +31,7 @@ COPY --from=frontend-build /app/frontend/dist ./public
 VOLUME ["/config"]
 
 EXPOSE 3000
+EXPOSE 10100-10200/udp
 ENV PORT=3000
 ENV CONFIG_PATH=/config/config.json
 ENV CIRCUIT_BREAKER_THRESHOLD=5
