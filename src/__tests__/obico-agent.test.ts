@@ -1,4 +1,6 @@
 import { WebSocketServer, WebSocket } from "ws";
+import * as http from "node:http";
+import * as zlib from "node:zlib";
 import { createObicoAgent } from "../obico/agent";
 import { ObicoAgentConfig, PrusaLinkCommandDispatcher } from "../obico/types";
 import { PrinterStatus, JobInfo } from "../prusalink/types";
@@ -945,5 +947,303 @@ describe("Print passthru commands", () => {
         }, 100);
       }, 50);
     }, 400);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// http.tunnelv2 handler (INFRA-02)
+// ──────────────────────────────────────────────────────────────────────────────
+
+describe("http.tunnelv2 handler", () => {
+  let tunnelServer: http.Server;
+  let tunnelPort: number;
+
+  let wss: WebSocketServer;
+  let wsPort: number;
+
+  beforeAll((done) => {
+    // Start a real local HTTP server to proxy to
+    tunnelServer = http.createServer((req, res) => {
+      if (req.url === "/api/files") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ files: [] }));
+        return;
+      }
+      if (req.url === "/api/big") {
+        res.writeHead(200, { "Content-Type": "text/plain" });
+        res.end("X".repeat(2000));
+        return;
+      }
+      if (req.url === "/api/small") {
+        res.writeHead(200, { "Content-Type": "text/plain" });
+        res.end("tiny");
+        return;
+      }
+      if (req.url === "/api/slow") {
+        // Respond after 15s — will hit 10s timeout
+        setTimeout(() => { try { res.end("late"); } catch { /* closed */ } }, 15000);
+        return;
+      }
+      res.writeHead(404);
+      res.end("not found");
+    });
+    tunnelServer.listen(0, "127.0.0.1", () => {
+      tunnelPort = (tunnelServer.address() as { port: number }).port;
+      done();
+    });
+  });
+
+  afterAll((done) => {
+    tunnelServer.close(() => done());
+  });
+
+  beforeEach((done) => {
+    wsPort = getPort();
+    wss = new WebSocketServer({ port: wsPort });
+    wss.on("listening", done);
+    jest.clearAllMocks();
+  });
+
+  afterEach((done) => {
+    wss.close(done);
+  });
+
+  function makeAgent() {
+    return createObicoAgent(
+      {
+        serverUrl: `http://localhost:${wsPort}`,
+        apiKey: "key",
+        localPort: tunnelPort,
+      },
+      mockHttp,
+      mockDispatcher
+    );
+  }
+
+  function waitForTunnelResponse(
+    serverSocket: WebSocket,
+    ref: string,
+    timeoutMs = 12000
+  ): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`Timeout waiting for tunnel response ref=${ref}`)), timeoutMs);
+      serverSocket.on("message", (data) => {
+        try {
+          const msg = JSON.parse(data.toString());
+          if (msg["http.tunnelv2"]?.ref === ref) {
+            clearTimeout(timer);
+            resolve(msg["http.tunnelv2"]);
+          }
+        } catch { /* ignore */ }
+      });
+    });
+  }
+
+  // Test 1: GET /api/files → proxied → response sent back
+  it("INFRA-02 T1: proxies GET /api/files and sends http.tunnelv2 response", (done) => {
+    let serverSocket: WebSocket;
+    wss.on("connection", (ws) => { serverSocket = ws; });
+
+    const agent = makeAgent();
+    agent.connect();
+
+    setTimeout(() => {
+      serverSocket.send(JSON.stringify({
+        "http.tunnelv2": {
+          ref: "T1",
+          method: "GET",
+          path: "/api/files",
+          headers: {},
+          timeout: 10,
+        },
+      }));
+
+      waitForTunnelResponse(serverSocket, "T1").then((tunnel) => {
+        expect(tunnel.ref).toBe("T1");
+        expect(tunnel.response.status).toBe(200);
+        expect(typeof tunnel.response.content).toBe("string");
+        expect(typeof tunnel.response.compressed).toBe("boolean");
+        expect(Array.isArray(tunnel.response.cookies)).toBe(true);
+        agent.disconnect();
+        done();
+      }).catch((err) => { agent.disconnect(); done(err); });
+    }, 50);
+  });
+
+  // Test 2: Body >= 1000 bytes → compressed=true, content = base64(zlib.deflate)
+  it("INFRA-02 T2: compresses body >= 1000 bytes (compressed=true)", (done) => {
+    let serverSocket: WebSocket;
+    wss.on("connection", (ws) => { serverSocket = ws; });
+
+    const agent = makeAgent();
+    agent.connect();
+
+    setTimeout(() => {
+      serverSocket.send(JSON.stringify({
+        "http.tunnelv2": {
+          ref: "T2",
+          method: "GET",
+          path: "/api/big",
+          headers: {},
+          timeout: 10,
+        },
+      }));
+
+      waitForTunnelResponse(serverSocket, "T2").then((tunnel) => {
+        expect(tunnel.response.compressed).toBe(true);
+        // Verify round-trip: base64-decode → zlib.inflateSync → "X".repeat(2000)
+        const decoded = Buffer.from(tunnel.response.content, "base64");
+        const inflated = zlib.inflateSync(decoded).toString();
+        expect(inflated).toBe("X".repeat(2000));
+        agent.disconnect();
+        done();
+      }).catch((err) => { agent.disconnect(); done(err); });
+    }, 50);
+  });
+
+  // Test 3: Body < 1000 bytes → compressed=false
+  it("INFRA-02 T3: does not compress body < 1000 bytes (compressed=false)", (done) => {
+    let serverSocket: WebSocket;
+    wss.on("connection", (ws) => { serverSocket = ws; });
+
+    const agent = makeAgent();
+    agent.connect();
+
+    setTimeout(() => {
+      serverSocket.send(JSON.stringify({
+        "http.tunnelv2": {
+          ref: "T3",
+          method: "GET",
+          path: "/api/small",
+          headers: {},
+          timeout: 10,
+        },
+      }));
+
+      waitForTunnelResponse(serverSocket, "T3").then((tunnel) => {
+        expect(tunnel.response.compressed).toBe(false);
+        const decoded = Buffer.from(tunnel.response.content, "base64").toString();
+        expect(decoded).toBe("tiny");
+        agent.disconnect();
+        done();
+      }).catch((err) => { agent.disconnect(); done(err); });
+    }, 50);
+  });
+
+  // Test 4: method != GET → 405, no HTTP call made
+  it("INFRA-02 T4: rejects non-GET method with 405 (no HTTP call)", (done) => {
+    let serverSocket: WebSocket;
+    wss.on("connection", (ws) => { serverSocket = ws; });
+
+    const agent = makeAgent();
+    agent.connect();
+
+    setTimeout(() => {
+      serverSocket.send(JSON.stringify({
+        "http.tunnelv2": {
+          ref: "T4",
+          method: "POST",
+          path: "/api/files",
+          headers: {},
+          timeout: 10,
+        },
+      }));
+
+      waitForTunnelResponse(serverSocket, "T4").then((tunnel) => {
+        expect(tunnel.response.status).toBe(405);
+        agent.disconnect();
+        done();
+      }).catch((err) => { agent.disconnect(); done(err); });
+    }, 50);
+  });
+
+  // Test 5: path not starting with /api/ → 403, no HTTP call
+  it("INFRA-02 T5: rejects path outside /api/ with 403", (done) => {
+    let serverSocket: WebSocket;
+    wss.on("connection", (ws) => { serverSocket = ws; });
+
+    const agent = makeAgent();
+    agent.connect();
+
+    setTimeout(() => {
+      serverSocket.send(JSON.stringify({
+        "http.tunnelv2": {
+          ref: "T5",
+          method: "GET",
+          path: "/etc/passwd",
+          headers: {},
+          timeout: 10,
+        },
+      }));
+
+      waitForTunnelResponse(serverSocket, "T5").then((tunnel) => {
+        expect(tunnel.response.status).toBe(403);
+        agent.disconnect();
+        done();
+      }).catch((err) => { agent.disconnect(); done(err); });
+    }, 50);
+  });
+
+  // Test 6: timeout — slow endpoint → 504 within ~10s
+  it("INFRA-02 T6: returns 504 when local HTTP request times out", (done) => {
+    let serverSocket: WebSocket;
+    wss.on("connection", (ws) => { serverSocket = ws; });
+
+    const agent = makeAgent();
+    agent.connect();
+
+    setTimeout(() => {
+      serverSocket.send(JSON.stringify({
+        "http.tunnelv2": {
+          ref: "T6",
+          method: "GET",
+          path: "/api/slow",
+          headers: {},
+          timeout: 10,
+        },
+      }));
+
+      waitForTunnelResponse(serverSocket, "T6", 12000).then((tunnel) => {
+        expect(tunnel.response.status).toBe(504);
+        agent.disconnect();
+        done();
+      }).catch((err) => { agent.disconnect(); done(err); });
+    }, 50);
+  }, 15000);
+
+  // Test 7: unreachable port → 502
+  it("INFRA-02 T7: returns 502 when local HTTP server is unreachable", (done) => {
+    let serverSocket: WebSocket;
+    wss.on("connection", (ws) => { serverSocket = ws; });
+
+    // Create agent with a port nobody is listening on
+    const badAgent = createObicoAgent(
+      {
+        serverUrl: `http://localhost:${wsPort}`,
+        apiKey: "key",
+        localPort: 19999, // nothing listening here
+      },
+      mockHttp,
+      mockDispatcher
+    );
+    badAgent.connect();
+
+    setTimeout(() => {
+      serverSocket.send(JSON.stringify({
+        "http.tunnelv2": {
+          ref: "T7",
+          method: "GET",
+          path: "/api/files",
+          headers: {},
+          timeout: 5,
+        },
+      }));
+
+      waitForTunnelResponse(serverSocket, "T7").then((tunnel) => {
+        expect(tunnel.response.status).toBe(502);
+        badAgent.disconnect();
+        done();
+      }).catch((err) => { badAgent.disconnect(); done(err); });
+    }, 50);
   });
 });
