@@ -199,6 +199,42 @@ export function createCamera(config: CameraConfig): CameraModule {
       healthMonitor.setState("camera", HealthState.DOWN);
     },
 
+    stopGracefully(timeoutMs: number): Promise<void> {
+      mjpegStopped = true;
+      if (mjpegRestartTimer) {
+        clearTimeout(mjpegRestartTimer);
+        mjpegRestartTimer = null;
+      }
+      if (mjpegWatchdogTimer) {
+        clearTimeout(mjpegWatchdogTimer);
+        mjpegWatchdogTimer = null;
+      }
+      healthMonitor.setState("camera", HealthState.DOWN);
+      const p = proc;
+      proc = null;
+      if (!p) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        const fallback = setTimeout(() => {
+          try {
+            p.kill("SIGKILL");
+          } catch {
+            /* already dead */
+          }
+          resolve();
+        }, timeoutMs);
+        p.once("close", () => {
+          clearTimeout(fallback);
+          resolve();
+        });
+        try {
+          p.kill("SIGINT");
+        } catch {
+          clearTimeout(fallback);
+          resolve();
+        }
+      });
+    },
+
     subscribe(id: symbol, callback: (frame: Buffer) => void): void {
       subscribers.set(id, callback);
     },

@@ -1,5 +1,5 @@
 # Stage 1: Build frontend
-FROM node:20-alpine AS frontend-build
+FROM node:22-alpine AS frontend-build
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm install
@@ -7,7 +7,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Build backend
-FROM node:20-alpine AS backend-build
+FROM node:22-alpine AS backend-build
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
@@ -16,13 +16,10 @@ COPY src/ ./src/
 RUN npm run build:backend
 
 # Stage 3: Runtime
-# node:20-slim (Debian Bookworm) — required for Janus (not available on Alpine)
-FROM node:20-slim AS runtime
+# node:22-alpine (Node.js 22 LTS) — janus available via Alpine community repo
+FROM node:22-alpine AS runtime
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
-    janus \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache ffmpeg janus-gateway
 
 WORKDIR /app
 COPY package*.json ./

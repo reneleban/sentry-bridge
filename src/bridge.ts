@@ -1,4 +1,9 @@
-import { loadConfig, isConfigured, getBridgeUrl, Config } from "./config/config";
+import {
+  loadConfig,
+  isConfigured,
+  getBridgeUrl,
+  Config,
+} from "./config/config";
 import { configEmitter } from "./config/config";
 import { createPrusaLinkClient } from "./prusalink/client";
 import { createCamera } from "./camera/camera";
@@ -34,6 +39,93 @@ const state: BridgeState = {
   janusRelay: null,
   janusStarted: false,
 };
+
+let shuttingDown = false;
+
+// Test-only helper — resets shutdown state + allows state injection
+export function __setStateForTest(patch: Partial<BridgeState>): void {
+  Object.assign(state, patch);
+  shuttingDown = false;
+}
+
+// Test-only helper — injects a partial shutdown config (ffmpegKillTimeoutSeconds)
+export function __setCurrentConfigForTest(
+  shutdown: { ffmpegKillTimeoutSeconds: number } | null
+): void {
+  if (shutdown !== null) {
+    currentConfig = {
+      name: "test",
+      prusalink: { url: "", username: "", password: "" },
+      camera: { rtspUrl: "", frameIntervalSeconds: 2 },
+      obico: { serverUrl: "", apiKey: "" },
+      polling: { statusIntervalMs: 5000 },
+      shutdown,
+    };
+  } else {
+    currentConfig = null;
+  }
+  shuttingDown = false;
+}
+
+export async function stopBridge(server: import("http").Server): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+
+  const timeoutSec = currentConfig?.shutdown?.ffmpegKillTimeoutSeconds ?? 3;
+
+  const hardTimeout = setTimeout(() => process.exit(0), 8000);
+  hardTimeout.unref();
+
+  try {
+    // 1. HTTP server
+    await new Promise<void>((resolve) => {
+      try {
+        server.close(() => resolve());
+      } catch {
+        resolve();
+      }
+    });
+    try {
+      server.closeAllConnections();
+    } catch {
+      /* older Node */
+    }
+
+    // 2. Obico WS — code 1001 going away
+    try {
+      state.agent?.disconnect(1001);
+    } catch (e) {
+      console.error("[shutdown] agent:", e);
+    }
+
+    // 3. Camera / ffmpeg — SIGINT → SIGKILL
+    try {
+      await state.camera?.stopGracefully(timeoutSec * 1000);
+    } catch (e) {
+      console.error("[shutdown] camera:", e);
+    }
+
+    // 4. Timers
+    if (state.pollHandle) {
+      clearInterval(state.pollHandle);
+      state.pollHandle = null;
+    }
+
+    // 5. Janus — relay first, then manager (dependency order)
+    try {
+      state.janusRelay?.stop();
+    } catch (e) {
+      console.error("[shutdown] janusRelay:", e);
+    }
+    try {
+      state.janusManager?.stop();
+    } catch (e) {
+      console.error("[shutdown] janusManager:", e);
+    }
+  } finally {
+    clearTimeout(hardTimeout);
+  }
+}
 
 export function diffConfig(prev: Config, next: Config) {
   return {
@@ -174,7 +266,9 @@ async function startJanusRelay(): Promise<void> {
   if (!state.agent || !state.janusManager) return;
   const printerId = await state.agent.fetchPrinterId();
   if (!printerId) {
-    console.warn("[bridge] Could not fetch printer ID — Janus relay not started");
+    console.warn(
+      "[bridge] Could not fetch printer ID — Janus relay not started"
+    );
     return;
   }
   if (state.janusRelay) {
