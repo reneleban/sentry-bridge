@@ -216,7 +216,6 @@ async function applyConfigChange(newConfig: Config): Promise<void> {
         serverUrl: validated.obico.serverUrl,
         apiKey: validated.obico.apiKey,
         streamUrl: `${getBridgeUrl(validated, currentPort)}/stream`,
-        localPort: currentPort,
       },
       httpFetcher,
       state.prusaClient!
@@ -282,7 +281,6 @@ export async function reconnectComponent(component: ReconnectTarget): Promise<vo
         serverUrl: currentConfig.obico.serverUrl,
         apiKey: currentConfig.obico.apiKey,
         streamUrl: `${getBridgeUrl(currentConfig, currentPort)}/stream`,
-        localPort: currentPort,
       },
       httpFetcher,
       state.prusaClient
@@ -305,7 +303,6 @@ export async function reconnectComponent(component: ReconnectTarget): Promise<vo
         serverUrl: currentConfig.obico.serverUrl,
         apiKey: currentConfig.obico.apiKey,
         streamUrl: `${getBridgeUrl(currentConfig, currentPort)}/stream`,
-        localPort: currentPort,
       },
       httpFetcher,
       state.prusaClient
@@ -436,7 +433,6 @@ export async function startBridge(port = 3000): Promise<void> {
       serverUrl: config.obico.serverUrl,
       apiKey: config.obico.apiKey,
       streamUrl: `${bridgeUrl}/stream`,
-      localPort: port,
     },
     httpFetcher,
     state.prusaClient
