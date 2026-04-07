@@ -1,10 +1,9 @@
 # obico-prusalink-bridge
 
-Connects Prusa Core One printers (via PrusaLink) to [Obico](https://www.obico.io/) — self-hosted or cloud. Runs as a standalone Docker container, acts as an Obico agent. No modifications to Obico or PrusaLink required.
+[![Docker Pulls](https://img.shields.io/docker/pulls/reneleban/obico-prusalink-bridge.svg)](https://hub.docker.com/r/reneleban/obico-prusalink-bridge)
+[![CI](https://img.shields.io/github/actions/workflow/status/reneleban/obico-prusalink-bridge/docker-publish.yml?branch=main&label=CI)](https://github.com/reneleban/obico-prusalink-bridge/actions)
 
-One container = one printer.
-
-## Features
+Standalone Docker service that connects Prusa Core One printers (via PrusaLink) to Obico (self-hosted or cloud). Runs as an Obico agent — no modifications to Obico or PrusaLink required. One container = one printer.
 
 - Setup wizard: PrusaLink credentials → camera test → Obico pairing
 - Live status forwarding (temperatures, job progress, state)
@@ -12,23 +11,75 @@ One container = one printer.
 - WebRTC live stream via Janus in the Obico control panel
 - Pause / resume / cancel from Obico
 
-## Quickstart
+## What it does
+
+The bridge acts as a translator between your Prusa Core One printer and Obico. It polls the printer's PrusaLink HTTP API for status and job data, captures the RTSP camera stream via ffmpeg, and forwards everything to Obico over WebSocket. The Obico control panel then shows your printer's state, lets you watch the live stream, and can pause or cancel a print if the AI detects a failure.
+
+## Requirements
+
+- Docker (20.10+) with Docker Compose v2
+- A Prusa Core One with PrusaLink enabled and reachable on your LAN
+- PrusaLink credentials (username + password from the printer's network settings)
+- RTSP camera stream from the printer (`rtsp://[printer-ip]/live`) — **mandatory**, Obico requires a live stream for AI failure detection
+- An Obico account (self-hosted or https://app.obico.io)
+- The Docker host's LAN IP (needed for WebRTC — see `JANUS_HOST_IP` below)
+
+## Quick Start
+
+Pull the image and run it with your Docker host's LAN IP:
+
+```bash
+docker run -d \
+  -p 3000:3000 \
+  -p 10100-10200:10100-10200/udp \
+  -v ./config:/config \
+  -e JANUS_HOST_IP=192.168.1.x \
+  reneleban/obico-prusalink-bridge:latest
+```
+
+```bash
+# Open http://localhost:3000 → follow setup wizard
+```
+
+Replace `192.168.1.x` with the LAN IP of the machine running Docker. Without this, the WebRTC live stream will not work.
+
+## Docker Compose
+
+For persistent setups, use the included `docker-compose.yml` at the repo root, or copy this block:
 
 ```yaml
-# docker-compose.yml
 services:
   bridge:
     image: reneleban/obico-prusalink-bridge:latest
+    container_name: prubico_bridge
     ports:
       - "3000:3000"
-      - "10100-10200:10100-10200/udp" # WebRTC ICE — required for live stream
+      - "10100-10200:10100-10200/udp" # WebRTC ICE media (browser ↔ Janus)
     volumes:
       - ./config:/config
     environment:
       - PORT=3000
       - CONFIG_PATH=/config/config.json
-      - JANUS_HOST_IP=192.168.1.x # set to your host machine's LAN IP
+      - JANUS_MODE=bundled
+      - JANUS_DEBUG_LEVEL=2
+      - JANUS_HOST_IP=${JANUS_HOST_IP:-}
+      - CIRCUIT_BREAKER_THRESHOLD=5
+      - CIRCUIT_BREAKER_RESET_TIMEOUT_MS=60000
+      - RETRY_BASE_DELAY_MS=1000
+      - RETRY_MAX_DELAY_MS=30000
+      - HEALTHCHECK_CRITICAL_TIMEOUT_MS=120000
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "fetch(''http://localhost:3000/api/health/live'').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"',
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
     restart: unless-stopped
+    stop_grace_period: 30s
 ```
 
 ```bash
@@ -36,7 +87,26 @@ docker compose up -d
 # Open http://localhost:3000 → follow setup wizard
 ```
 
+The repo includes a ready-to-use [`docker-compose.yml`](./docker-compose.yml) — just clone and run.
+
 ## Configuration
+
+### Environment Variables
+
+| Variable                           | Default               | Required / Optional       | Description                                                                                                                                                     |
+| ---------------------------------- | --------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                             | `3000`                | Optional                  | HTTP port                                                                                                                                                       |
+| `CONFIG_PATH`                      | `/config/config.json` | Optional                  | Config file path                                                                                                                                                |
+| `JANUS_HOST_IP`                    | _(unset)_             | **Required** (for WebRTC) | LAN IP of the Docker host. Janus advertises this as its ICE candidate so the browser can reach it. Without this, the live stream falls back to MJPEG snapshots. |
+| `JANUS_MODE`                       | `auto`                | Optional                  | `bundled` — bridge manages Janus binary; `hosted` — external/sidecar; `auto` — detect                                                                           |
+| `JANUS_DEBUG_LEVEL`                | `2`                   | Optional                  | Janus log verbosity: 0=Fatal 1=Err 2=Warn 3=Info 4=Verbose 5=Huge                                                                                               |
+| `CIRCUIT_BREAKER_THRESHOLD`        | `5`                   | Optional                  | Consecutive PrusaLink failures before circuit opens                                                                                                             |
+| `CIRCUIT_BREAKER_RESET_TIMEOUT_MS` | `60000`               | Optional                  | Time (ms) before retrying after circuit opens                                                                                                                   |
+| `RETRY_BASE_DELAY_MS`              | `1000`                | Optional                  | Initial retry delay (ms)                                                                                                                                        |
+| `RETRY_MAX_DELAY_MS`               | `30000`               | Optional                  | Maximum retry delay (ms)                                                                                                                                        |
+| `HEALTHCHECK_CRITICAL_TIMEOUT_MS`  | `120000`              | Optional                  | Time (ms) a critical component can stay DOWN before `/api/health/ready` returns 503                                                                             |
+
+### config.json
 
 The wizard writes `/config/config.json` on the mounted volume. All fields can also be set manually:
 
@@ -45,7 +115,7 @@ The wizard writes `/config/config.json` on the mounted volume. All fields can al
   "prusalink": {
     "url": "http://192.168.1.x",
     "username": "maker",
-    "password": "..."
+    "password": "your-prusalink-password"
   },
   "camera": {
     "rtspUrl": "rtsp://192.168.1.x/live",
@@ -53,29 +123,66 @@ The wizard writes `/config/config.json` on the mounted volume. All fields can al
   },
   "obico": {
     "serverUrl": "https://app.obico.io",
-    "apiKey": "<auth_token from pairing>"
+    "apiKey": ""
   }
 }
 ```
 
-## Architecture
+- `prusalink` — printer URL, username, and password for HTTP Digest Auth access to PrusaLink
+- `camera` — RTSP stream URL and snapshot interval in seconds
+- `obico` — server URL and pairing token (`apiKey` is empty until the wizard completes pairing)
 
-```
-Prusa Core One
-  ├── PrusaLink HTTP  →  Bridge (status poll, pause/resume/cancel)
-  └── RTSP /live      →  ffmpeg → H.264 RTP → Janus (WebRTC)
-                                                   ↕ WS relay
-Browser  ←  Obico Server  ←  /ws/janus/{id}/  ←  Bridge
-```
+## Setup Wizard
 
-- **Config module** — reads/writes JSON from mounted volume
-- **PrusaLink client** — HTTP Digest Auth, polls status + job
-- **Camera module** — RTSP → JPEG frames (MJPEG) + H.264 RTP (WebRTC)
-- **Janus manager** — spawns/detects Janus WebRTC gateway
-- **Janus relay** — bidirectional WS relay: local Janus ↔ Obico
-- **Obico agent** — WebSocket to Obico, pairing flow, status + frame forwarding
+On first start the bridge serves a 4-step wizard at `http://localhost:3000`:
 
-## Development
+1. **PrusaLink** — enter printer URL (e.g. `http://192.168.1.50`), username (`maker`), and password. The wizard performs a live connection test before continuing.
+2. **Camera** — the wizard probes `rtsp://[printer-ip]/live` and shows a preview frame. This step is **mandatory** — it blocks until a frame is received.
+3. **Obico Pairing** — enter your Obico server URL (`https://app.obico.io` or your self-hosted instance). The wizard displays a 6-digit pairing code. Confirm it in Obico's "Link Printer" dialog.
+4. **Done** — redirect to the dashboard. The bridge starts forwarding status and frames.
+
+## Known Limitations
+
+These are intentional product decisions, not bugs:
+
+- **One container = one printer.** Simplifies config, isolation, and restarts. Run multiple containers on different ports for multiple printers.
+- **RTSP camera is mandatory.** Obico's AI failure detection requires a live stream — there is no "disable camera" mode.
+- **Manual printer controls are limited to pause / resume / cancel.** The PrusaLink API does not expose file upload, filament load/unload, or print queue management, so the bridge does not either.
+
+## Troubleshooting
+
+### 1. PrusaLink auth fails (401)
+
+- Symptom: Wizard step 1 fails with 401 Unauthorized
+- Check URL has no trailing slash: `http://192.168.1.50` not `http://192.168.1.50/`
+- Verify credentials in PrusaLink: Settings → Network → API Key / User Password
+- Test from host: `curl -u maker:yourpass --digest http://192.168.1.50/api/v1/status`
+
+### 2. Camera RTSP unreachable
+
+- Symptom: Wizard step 2 blocks, no frame preview
+- Confirm printer has a camera (Buddy3D board) and RTSP is enabled
+- Test from host: `ffmpeg -rtsp_transport tcp -i rtsp://192.168.1.50/live -frames:v 1 -f image2 test.jpg`
+- Check LAN: printer and Docker host on the same subnet, no VLAN isolation
+
+### 3. Obico pairing never confirms
+
+- Symptom: Wizard step 3 shows pairing code but Obico never confirms
+- Verify the server URL (`https://app.obico.io` or your self-hosted URL) — no trailing slash
+- Check firewall between bridge and Obico server (WebSocket on 443/80)
+- Container logs: `docker logs <container> | grep obico`
+
+### 4. WebRTC live stream is black in Obico
+
+- Symptom: Obico control panel loads but video is black / spinning
+- `JANUS_HOST_IP` must be set to the **Docker host's LAN IP**, not `127.0.0.1` or `0.0.0.0`
+- Confirm UDP ports `10100-10200` are published and reachable from the browser
+- Test: `docker exec <container> env | grep JANUS_HOST_IP`
+- Restart after change: `docker compose up -d --force-recreate`
+
+## Building from Source
+
+For local development or custom builds:
 
 ### Prerequisites
 
@@ -86,8 +193,18 @@ Browser  ←  Obico Server  ←  /ws/janus/{id}/  ←  Bridge
 ### Setup
 
 ```bash
+git clone https://github.com/reneleban/obico-prusalink-bridge.git
+cd obico-prusalink-bridge
 npm run install:all
 ```
+
+### Run (dev)
+
+```bash
+npm run dev:all          # backend (ts-node watch) + frontend (Vite)
+```
+
+Frontend proxies `/api/*` to the backend automatically.
 
 ### Janus WebRTC sidecar (Mac / dev only)
 
@@ -109,38 +226,32 @@ The bridge auto-detects a running Janus on `ws://127.0.0.1:8188` before looking 
 
 In production (Docker image), Janus runs natively inside the container — set `JANUS_HOST_IP` in the environment instead of editing the config file directly.
 
-### Run
-
-```bash
-npm run dev:all          # backend (ts-node watch) + frontend (Vite)
-```
-
-Frontend proxies `/api/*` to the backend automatically.
-
 ### Test
 
 ```bash
-npm run test:backend     # Jest, watch mode: npm run test:backend -- --watch
+npm run test:backend
 ```
 
 ### Build
 
 ```bash
-npm run build:all        # TypeScript + Vite → dist/ + frontend/dist/
-npm run build:docker     # Docker image (single platform)
+npm run build:all           # TypeScript + Vite → dist/ + frontend/dist/
+npm run build:docker        # Docker image (single platform)
 ```
 
-## Environment variables
+## Architecture
 
-| Variable                           | Default               | Description                                                                                                                                                                              |
-| ---------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                             | `3000`                | HTTP port                                                                                                                                                                                |
-| `CONFIG_PATH`                      | `/config/config.json` | Config file path                                                                                                                                                                         |
-| `JANUS_HOST_IP`                    | _(unset)_             | **Required for WebRTC.** LAN IP of the Docker host. Janus advertises this as its ICE candidate so the browser can reach it. Without this, the live stream falls back to MJPEG snapshots. |
-| `JANUS_MODE`                       | `auto`                | `bundled` — bridge manages Janus binary; `hosted` — external/sidecar; `auto` — detect                                                                                                    |
-| `JANUS_DEBUG_LEVEL`                | `2`                   | Janus log verbosity: 0=Fatal 1=Err 2=Warn 3=Info 4=Verbose 5=Huge                                                                                                                        |
-| `CIRCUIT_BREAKER_THRESHOLD`        | `5`                   | Consecutive PrusaLink failures before circuit opens                                                                                                                                      |
-| `CIRCUIT_BREAKER_RESET_TIMEOUT_MS` | `60000`               | Time (ms) before retrying after circuit opens                                                                                                                                            |
-| `RETRY_BASE_DELAY_MS`              | `1000`                | Initial retry delay (ms)                                                                                                                                                                 |
-| `RETRY_MAX_DELAY_MS`               | `30000`               | Maximum retry delay (ms)                                                                                                                                                                 |
-| `HEALTHCHECK_CRITICAL_TIMEOUT_MS`  | `120000`              | Time (ms) a critical component can stay DOWN before `/api/health/ready` returns 503                                                                                                      |
+```
+Prusa Core One
+  ├── PrusaLink HTTP  →  Bridge (status poll, pause/resume/cancel)
+  └── RTSP /live      →  ffmpeg → H.264 RTP → Janus (WebRTC)
+                                                   ↕ WS relay
+Browser  ←  Obico Server  ←  /ws/janus/{id}/  ←  Bridge
+```
+
+- **Config module** — reads/writes JSON from mounted volume
+- **PrusaLink client** — HTTP Digest Auth, polls status + job
+- **Camera module** — RTSP → JPEG frames (MJPEG) + H.264 RTP (WebRTC)
+- **Janus manager** — spawns/detects Janus WebRTC gateway
+- **Janus relay** — bidirectional WS relay: local Janus ↔ Obico
+- **Obico agent** — WebSocket to Obico, pairing flow, status + frame forwarding

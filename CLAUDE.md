@@ -92,7 +92,7 @@ npm run test:backend -- --watch  # watch mode
 ## Git Workflow
 
 - Default branch is `main` (set globally: `git config --global init.defaultBranch main`)
-- Every issue gets its own branch: `feat/issue-N-short-description`
+- GSD manages branches automatically per phase: `gsd/phase-{N}-{slug}` (e.g. `gsd/phase-9-documentation`)
 - Never commit directly to `main`
 - Claude opens the PR, the user reviews and merges
 - PR title format: `feat(#N): short description`

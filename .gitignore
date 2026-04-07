@@ -5,7 +5,8 @@ frontend/node_modules/
 scripts/poc/node_modules/
 .env
 !.env.example
-/config/*.json
+/config/config.json
+!/config/config.example.json
 *.log
 reports/
 .claude/settings.local.json
