@@ -41,6 +41,13 @@ export interface PrinterInfo {
   hostname: string;
 }
 
+export interface FileEntry {
+  name: string;
+  path: string;
+  size: number;
+  date: string; // ISO-String
+}
+
 export interface PrusaLinkClient {
   testConnection(): Promise<{ ok: boolean; error?: string }>;
   getInfo(): Promise<PrinterInfo>;
@@ -49,4 +56,12 @@ export interface PrusaLinkClient {
   pause(): Promise<void>;
   resume(): Promise<void>;
   cancel(): Promise<void>;
+  listFiles(): Promise<FileEntry[]>;
+  uploadFile(
+    filename: string,
+    stream: NodeJS.ReadableStream,
+    size: number
+  ): Promise<void>;
+  startPrint(filename: string): Promise<void>;
+  deleteFile(filename: string): Promise<void>;
 }
