@@ -93,6 +93,19 @@ describe("Camera", () => {
       const camera = createCamera(config);
       await expect(camera.testStream()).rejects.toThrow(/ffmpeg/i);
     });
+
+    it("rejects with timeout error when ffmpeg does not close within timeoutMs", async () => {
+      jest.useFakeTimers();
+      const proc = makeMockProcess({}); // emittiert nie "close"
+      mockSpawn.mockReturnValue(proc);
+      const camera = createCamera(config);
+      const promise = camera.testStream(5000);
+      jest.advanceTimersByTime(5001);
+      await Promise.resolve(); // Microtask-Queue drainieren
+      await expect(promise).rejects.toThrow(/timed out/i);
+      expect(proc.kill).toHaveBeenCalled();
+      jest.useRealTimers();
+    });
   });
 
   describe("start() / stop() / onFrame()", () => {
