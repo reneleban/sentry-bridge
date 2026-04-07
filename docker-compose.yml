@@ -5,6 +5,7 @@ services:
     build: .
     ports:
       - "${PORT:-3000}:3000"
+      - "10100-10200:10100-10200/udp" # WebRTC ICE media (browser ↔ Janus)
     volumes:
       - ./config:/config
     environment:
@@ -20,6 +21,9 @@ services:
       - JANUS_MODE=bundled
       # Janus log verbosity: 0=Fatal 1=Err 2=Warn 3=Info 4=Verbose 5=Huge (default: 2)
       - JANUS_DEBUG_LEVEL=2
+      # Host LAN IP — Janus advertises this as ICE candidate so browser can reach it.
+      # Required for WebRTC to work. Set to the IP of the machine running Docker.
+      - JANUS_HOST_IP=${JANUS_HOST_IP:-}
     healthcheck:
       test:
         [

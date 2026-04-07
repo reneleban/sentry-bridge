@@ -89,6 +89,23 @@ export function createJanusManager(): JanusManager {
       }
     }
 
+    // Patch nat_1_1_mapping with the host LAN IP so Janus advertises a reachable
+    // ICE candidate. Without this, Janus defaults to 127.0.0.1 which is unreachable
+    // from the Obico server / browser outside the container.
+    const hostIp = process.env.JANUS_HOST_IP?.trim();
+    if (hostIp) {
+      const jcfgPath = path.join(dir, "janus.jcfg");
+      if (fs.existsSync(jcfgPath)) {
+        const original = fs.readFileSync(jcfgPath, "utf8");
+        const patched = original.replace(
+          /nat_1_1_mapping\s*=\s*"[^"]*"/,
+          `nat_1_1_mapping = "${hostIp}"`
+        );
+        fs.writeFileSync(jcfgPath, patched, "utf8");
+        console.log(`[janus] nat_1_1_mapping set to ${hostIp}`);
+      }
+    }
+
     return dir;
   }
 
