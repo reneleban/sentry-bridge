@@ -225,7 +225,7 @@ describe("PrusaLinkClient", () => {
   describe("CB coverage for mutations", () => {
     async function openCircuitBreaker(client: ReturnType<typeof createPrusaLinkClient>) {
       const threshold = resilienceConfig.circuitBreaker.threshold;
-      mockFetch.mockResolvedValue(mockResponse(500));
+      mockFetch.mockRejectedValue(new Error("ECONNREFUSED"));
       for (let i = 0; i < threshold; i++) {
         try { await client.getStatus(); } catch {}
       }
