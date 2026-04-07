@@ -157,6 +157,11 @@ describe("startPairing()", () => {
 });
 
 describe("waitForPairing()", () => {
+  afterEach(() => {
+    // Ensure fake timers are always restored even if a test throws
+    jest.useRealTimers();
+  });
+
   it("polls verify endpoint and returns auth_token when confirmed", async () => {
     mockFetch
       .mockResolvedValueOnce(mockResponse(202)) // not yet confirmed
@@ -186,6 +191,22 @@ describe("waitForPairing()", () => {
     await expect(
       agent.waitForPairing("http://obico.local", "AB123")
     ).rejects.toThrow(/expired/i);
+  });
+
+  it("rejects with a timeout error after 120s when never confirmed", async () => {
+    // Use real timers with a short injected deadline so the test completes
+    // in milliseconds rather than 120 real seconds. The production default
+    // is 120_000 ms (hardcoded per D3). The optional 3rd parameter lets
+    // tests override the deadline — same pattern as camera.testStream(timeoutMs).
+    mockFetch.mockResolvedValue(mockResponse(202)); // always 202, never confirmed
+    const agent = createObicoAgent(
+      { serverUrl: "http://obico.local", apiKey: "" },
+      mockHttp,
+      mockDispatcher
+    );
+    await expect(
+      agent.waitForPairing("http://obico.local", "AB123", 200)
+    ).rejects.toThrow(/timed out/i);
   });
 });
 

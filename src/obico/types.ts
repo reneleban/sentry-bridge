@@ -89,7 +89,7 @@ export interface ObicoAgent {
   connect(onOpen?: () => void): void;
   disconnect(): void;
   startPairing(serverUrl: string): Promise<string>;
-  waitForPairing(serverUrl: string, code: string): Promise<string>;
+  waitForPairing(serverUrl: string, code: string, timeoutMs?: number): Promise<string>;
   sendStatus(status: PrinterStatus, job: JobInfo | null): void;
   sendFrame(jpeg: Buffer): Promise<void>;
   /** Fetch printer ID from Obico API. Returns null on failure. */

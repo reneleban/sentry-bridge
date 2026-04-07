@@ -9,3 +9,4 @@ scripts/poc/node_modules/
 *.log
 reports/
 .claude/settings.local.json
+node_modules

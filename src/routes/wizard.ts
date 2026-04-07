@@ -2,6 +2,15 @@ import { Router } from "express";
 import { createPrusaLinkClient } from "../prusalink/client";
 import { createCamera } from "../camera/camera";
 import { isConfigured } from "../config/config";
+import { createObicoAgent } from "../obico/agent";
+import { HttpFetcher, PrusaLinkCommandDispatcher } from "../obico/types";
+
+const httpFetcher: HttpFetcher = { fetch: (u, o) => fetch(u, o) };
+const noopDispatcher: PrusaLinkCommandDispatcher = {
+  pause: () => Promise.resolve(),
+  resume: () => Promise.resolve(),
+  cancel: () => Promise.resolve(),
+};
 
 const router = Router();
 
@@ -58,37 +67,24 @@ router.post("/verify-pairing", async (req, res) => {
     return;
   }
 
+  const agent = createObicoAgent(
+    { serverUrl: obicoServerUrl, apiKey: "" },
+    httpFetcher,
+    noopDispatcher
+  );
+
   try {
-    const url = `${obicoServerUrl.replace(/\/$/, "")}/api/v1/octo/verify/?code=${encodeURIComponent(code)}`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      res
-        .status(502)
-        .json({ message: `Verification failed (${response.status}): ${text}` });
-      return;
-    }
-
-    const body = (await response.json()) as {
-      auth_token?: string;
-      printer?: { auth_token?: string };
-    };
-
-    const apiKey = body.auth_token ?? body.printer?.auth_token;
-    if (!apiKey) {
-      res.status(502).json({ message: "No auth_token in response" });
-      return;
-    }
-
+    const apiKey = await agent.waitForPairing(obicoServerUrl, code);
     res.json({ apiKey, serverUrl: obicoServerUrl });
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Failed to reach Obico server";
-    res.status(502).json({ message });
+    const message = err instanceof Error ? err.message : "Pairing failed";
+    if (/timed out/i.test(message)) {
+      res.status(504).json({ message });
+    } else if (/expired/i.test(message)) {
+      res.status(410).json({ message });
+    } else {
+      res.status(502).json({ message });
+    }
   }
 });
 

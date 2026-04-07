@@ -1,5 +1,8 @@
 import * as fs from "fs";
 import * as os from "os";
+import { EventEmitter } from "events";
+
+export const configEmitter = new EventEmitter();
 
 export interface Config {
   name?: string;
@@ -49,6 +52,7 @@ export function loadConfig(): Config {
 export function saveConfig(config: Config): void {
   const filePath = configPath();
   fs.writeFileSync(filePath, JSON.stringify(config, null, 2), "utf-8");
+  configEmitter.emit("config-changed", config);
 }
 
 export function isConfigured(): boolean {
