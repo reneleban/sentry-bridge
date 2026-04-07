@@ -9,4 +9,5 @@ scripts/poc/node_modules/
 *.log
 reports/
 .claude/settings.local.json
+.claude/worktrees/
 node_modules
