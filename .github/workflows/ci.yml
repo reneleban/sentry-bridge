@@ -39,6 +39,7 @@ jobs:
   docker-build:
     runs-on: self-hosted
     needs: test
+    if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
 
@@ -51,10 +52,5 @@ jobs:
           context: .
           platforms: linux/amd64
           push: false
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
-
-      - name: Rotate cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
