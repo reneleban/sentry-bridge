@@ -1,0 +1,15 @@
+{
+  "prusalink": {
+    "url": "http://192.168.1.x",
+    "username": "maker",
+    "password": "your-prusalink-password"
+  },
+  "camera": {
+    "rtspUrl": "rtsp://192.168.1.x/live",
+    "frameIntervalSeconds": 10
+  },
+  "obico": {
+    "serverUrl": "https://app.obico.io",
+    "apiKey": ""
+  }
+}
