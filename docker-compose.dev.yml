@@ -8,6 +8,7 @@ version: "3.9"
 services:
   janus:
     image: canyan/janus-gateway:latest
+    container_name: prubico_janus
     platform: linux/amd64
     ports:
       - "8088:8088" # Janus HTTP REST API (dev/debug only)

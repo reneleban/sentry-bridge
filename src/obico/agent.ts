@@ -7,6 +7,10 @@ import {
   buildStatusMessage,
 } from "./types";
 import { PrinterStatus, JobInfo } from "../prusalink/types";
+import { calculateDelay } from "../lib/retry";
+import { resilienceConfig } from "../lib/env-config";
+import { healthMonitor } from "../lib/health";
+import { HealthState, ErrorSeverity } from "../lib/health-monitor";
 
 export function createObicoAgent(
   config: ObicoAgentConfig,
@@ -17,6 +21,50 @@ export function createObicoAgent(
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let disconnecting = false;
 
+  // Janus signaling — Obico sends {"janus": "<json>"} on the agent WS.
+  // We forward to local Janus and send responses back on the same WS.
+  let janusWsUrl: string | null = null;
+  let janusWs: WebSocket | null = null;
+  const janusQueue: string[] = [];
+
+  function ensureJanusWs(): void {
+    if (janusWs && janusWs.readyState === WebSocket.OPEN) return;
+    if (!janusWsUrl) return;
+
+    janusWs = new WebSocket(janusWsUrl, "janus-protocol");
+    janusWs.on("open", () => {
+      console.log(
+        "[obico/janus] Local Janus WS open — flushing",
+        janusQueue.length,
+        "queued messages"
+      );
+      for (const msg of janusQueue) janusWs!.send(msg);
+      janusQueue.length = 0;
+    });
+    janusWs.on("message", (data) => {
+      // Forward Janus response back to Obico via agent WS
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ janus: data.toString() }));
+      }
+    });
+    janusWs.on("close", () => {
+      console.log("[obico/janus] Local Janus WS closed");
+      janusWs = null;
+    });
+    janusWs.on("error", (err) =>
+      console.error("[obico/janus] Local Janus WS error:", err.message)
+    );
+  }
+
+  function handleJanus(jsonStr: string): void {
+    ensureJanusWs();
+    if (janusWs?.readyState === WebSocket.OPEN) {
+      janusWs.send(jsonStr);
+    } else {
+      janusQueue.push(jsonStr);
+    }
+  }
+
   function wsUrl(serverUrl: string): string {
     return serverUrl.replace(/\/$/, "").replace(/^http/, "ws") + "/ws/dev/";
   }
@@ -26,6 +74,7 @@ export function createObicoAgent(
   }
 
   let onOpenCallback: (() => void) | null = null;
+  let reconnectAttempt = 0;
 
   function openWebSocket(url: string): void {
     ws = new WebSocket(url, {
@@ -34,7 +83,8 @@ export function createObicoAgent(
 
     ws.on("open", () => {
       console.log("[obico] WebSocket connected to", url);
-      reconnectDelay = 1000;
+      reconnectAttempt = 0;
+      healthMonitor.setState("obico_ws", HealthState.HEALTHY);
       if (onOpenCallback) onOpenCallback();
     });
 
@@ -44,6 +94,7 @@ export function createObicoAgent(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const msg = JSON.parse(data.toString()) as any;
         if (msg.passthru) handlePassthru(msg.passthru);
+        if (msg.janus) handleJanus(msg.janus);
       } catch {
         // ignore malformed messages
       }
@@ -52,7 +103,13 @@ export function createObicoAgent(
     ws.on("close", (code, reason) => {
       console.log(`[obico] WebSocket closed: ${code} ${reason}`);
       ws = null;
-      if (!disconnecting) scheduleReconnect(url);
+      if (!disconnecting) {
+        const msg = `WebSocket closed (code ${code})`;
+        healthMonitor.setState("obico_ws", HealthState.RECOVERING);
+        healthMonitor.pushError("obico_ws", msg, ErrorSeverity.WARN);
+        healthMonitor.incrementRestarts("obico_ws");
+        scheduleReconnect(url);
+      }
     });
 
     ws.on("error", (err) => {
@@ -60,13 +117,10 @@ export function createObicoAgent(
     });
   }
 
-  let reconnectDelay = 1000;
-
   function scheduleReconnect(url: string): void {
-    reconnectTimer = setTimeout(() => {
-      reconnectDelay = Math.min(reconnectDelay * 2, 30000);
-      openWebSocket(url);
-    }, reconnectDelay);
+    const delay = calculateDelay(reconnectAttempt, resilienceConfig.retry);
+    reconnectAttempt++;
+    reconnectTimer = setTimeout(() => openWebSocket(url), delay);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -88,8 +142,9 @@ export function createObicoAgent(
   return {
     connect(onOpen?: () => void): void {
       disconnecting = false;
-      reconnectDelay = 1000;
+      reconnectAttempt = 0;
       onOpenCallback = onOpen ?? null;
+      healthMonitor.setState("obico_ws", HealthState.RECOVERING);
       openWebSocket(wsUrl(config.serverUrl));
     },
 
@@ -103,6 +158,7 @@ export function createObicoAgent(
         ws.close();
         ws = null;
       }
+      healthMonitor.setState("obico_ws", HealthState.DOWN);
     },
 
     async startPairing(serverUrl: string): Promise<string> {
@@ -177,6 +233,10 @@ export function createObicoAgent(
       } catch {
         return null;
       }
+    },
+
+    setJanusUrl(url: string): void {
+      janusWsUrl = url;
     },
 
     async updateAgentInfo(): Promise<void> {

@@ -5,6 +5,10 @@ import {
   PrusaLinkClient,
   PrusaLinkConfig,
 } from "./types";
+import { createCircuitBreaker } from "../lib/circuit-breaker";
+import { resilienceConfig } from "../lib/env-config";
+import { healthMonitor, circuitBreakerRegistry } from "../lib/health";
+import { HealthState, ErrorSeverity } from "../lib/health-monitor";
 
 export interface HttpFetcher {
   fetch(url: string, options?: RequestInit): Promise<Response>;
@@ -21,9 +25,28 @@ export function createPrusaLinkClient(
 ): PrusaLinkClient {
   const http = fetcher ?? createDigestFetcher(config.username, config.password);
   const base = config.baseUrl.replace(/\/$/, "");
+  const cb = createCircuitBreaker(resilienceConfig.circuitBreaker);
+  circuitBreakerRegistry.set("prusalink", cb);
 
   async function get(path: string): Promise<Response> {
-    return http.fetch(`${base}${path}`, { method: "GET" });
+    try {
+      const res = await cb.execute(() =>
+        http.fetch(`${base}${path}`, { method: "GET" })
+      );
+      healthMonitor.setState("prusalink", HealthState.HEALTHY);
+      return res;
+    } catch (err) {
+      const msg = (err as Error).message;
+      healthMonitor.setState("prusalink", HealthState.DOWN);
+      healthMonitor.pushError(
+        "prusalink",
+        msg,
+        msg === "Circuit breaker is OPEN"
+          ? ErrorSeverity.WARN
+          : ErrorSeverity.ERROR
+      );
+      throw err;
+    }
   }
 
   async function getJobId(): Promise<number> {
@@ -36,6 +59,14 @@ export function createPrusaLinkClient(
   }
 
   return {
+    async getInfo() {
+      const res = await get("/api/v1/info");
+      if (!res.ok) throw new Error(`getInfo failed: ${res.status}`);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const body = (await res.json()) as any;
+      return { hostname: body.hostname as string };
+    },
+
     async testConnection() {
       try {
         const res = await get("/api/v1/info");

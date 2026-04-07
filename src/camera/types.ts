@@ -13,4 +13,6 @@ export interface CameraModule {
   /** Start a parallel H.264 RTP stream to 127.0.0.1:{port} for Janus. */
   startRtpStream(port: number): void;
   stopRtpStream(): void;
+  /** Fired after a successful RTP restart (not the initial start). */
+  onRtpRecover(callback: () => void): void;
 }

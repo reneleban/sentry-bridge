@@ -6,6 +6,7 @@ import { createObicoAgent } from "./obico/agent";
 import { HttpFetcher } from "./obico/types";
 import { createJanusManager } from "./janus/manager";
 import { createJanusRelay } from "./janus/relay";
+import { setJanusMode } from "./lib/health";
 
 const httpFetcher: HttpFetcher = { fetch: (url, opts) => fetch(url, opts) };
 
@@ -73,21 +74,15 @@ export async function startBridge(port = 3000): Promise<void> {
       ]);
       agent.sendStatus(status, job);
     } catch {
-      // non-fatal — Obico agent handles reconnect
+      // non-fatal — circuit breaker handles flooding, agent handles reconnect
     }
   }
 
-  // Janus WebRTC — start if available, fall back to MJPEG-only gracefully
   const RTP_PORT = 17732;
   const janusManager = createJanusManager();
   let janusRelay: ReturnType<typeof createJanusRelay> | null = null;
 
-  async function startJanus(): Promise<void> {
-    const available = await janusManager.start();
-    if (!available) return;
-
-    camera.startRtpStream(RTP_PORT);
-
+  async function startJanusRelay(): Promise<void> {
     const printerId = await agent.fetchPrinterId();
     if (!printerId) {
       console.warn(
@@ -95,7 +90,11 @@ export async function startBridge(port = 3000): Promise<void> {
       );
       return;
     }
-
+    // Stop existing relay before creating a new one
+    if (janusRelay) {
+      janusRelay.stop();
+      janusRelay = null;
+    }
     janusRelay = createJanusRelay(
       janusManager.wsUrl,
       config.obico.serverUrl,
@@ -106,11 +105,39 @@ export async function startBridge(port = 3000): Promise<void> {
     console.log(`[bridge] Janus relay active for printer ${printerId}`);
   }
 
-  // Send status immediately when WS opens, then keep polling
+  async function startJanus(): Promise<void> {
+    const available = await janusManager.start();
+    setJanusMode(janusManager.mode);
+    if (!available) return;
+
+    agent.setJanusUrl(janusManager.wsUrl);
+
+    camera.startRtpStream(RTP_PORT);
+
+    // When Janus crashes and restarts, rebuild RTP stream + relay
+    janusManager.onCrash(async () => {
+      console.log("[bridge] Janus restarted — rebuilding RTP stream and relay");
+      camera.stopRtpStream();
+      camera.startRtpStream(RTP_PORT);
+      await startJanusRelay();
+    });
+
+    await startJanusRelay();
+  }
+
+  // Send status immediately when WS opens, then keep polling.
+  // onOpenCallback fires on every reconnect — rebuild Janus relay each time.
   const intervalMs = config.polling?.statusIntervalMs ?? 5000;
+  let janusStarted = false;
   agent.connect(async () => {
     await agent.updateAgentInfo();
-    await startJanus();
+    if (!janusStarted) {
+      janusStarted = true;
+      await startJanus();
+    } else {
+      // Obico WS reconnected — rebuild relay with potentially refreshed printer ID
+      if (janusRelay) await startJanusRelay();
+    }
     pollAndSend();
   });
   setInterval(pollAndSend, intervalMs);
