@@ -239,11 +239,13 @@ export function createCamera(config: CameraConfig): CameraModule {
       healthMonitor.setState("rtp_stream", HealthState.DOWN);
     },
 
-    testStream(): Promise<Buffer> {
+    testStream(timeoutMs = 10_000): Promise<Buffer> {
       return new Promise((resolve, reject) => {
         const p = spawnFfmpeg([
           "-rtsp_transport",
           "tcp",
+          "-stimeout",
+          "8000000", // 8s RTSP-Socket-Timeout (Mikrosekunden) — innerer Wächter
           "-i",
           config.rtspUrl,
           "-frames:v",
@@ -257,14 +259,29 @@ export function createCamera(config: CameraConfig): CameraModule {
           "pipe:1",
         ]);
 
+        let settled = false;
+
+        const timer = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          p.kill();
+          reject(new Error(`testStream timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+
         const chunks: Buffer[] = [];
         p.stdout!.on("data", (chunk: Buffer) => chunks.push(chunk));
 
-        p.on("error", (err) =>
-          reject(new Error(`ffmpeg error: ${err.message}`))
-        );
+        p.on("error", (err) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          reject(new Error(`ffmpeg error: ${err.message}`));
+        });
 
         p.on("close", (code) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
           const buf = Buffer.concat(chunks);
           if (code !== 0 && buf.length === 0) {
             reject(new Error(`ffmpeg exited with code ${code}`));
