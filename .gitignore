@@ -8,3 +8,4 @@ scripts/poc/node_modules/
 /config/*.json
 *.log
 reports/
+.claude/settings.local.json
