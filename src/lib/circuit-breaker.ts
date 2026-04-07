@@ -22,6 +22,7 @@ export interface CircuitBreaker {
   readonly state: CircuitState;
   readonly stats: CircuitBreakerStats;
   execute<T>(fn: () => Promise<T>): Promise<T>;
+  reset(): void;
 }
 
 export function createCircuitBreaker(
@@ -61,6 +62,16 @@ export function createCircuitBreaker(
         openedAt,
         timeUntilHalfOpenMs,
       };
+    },
+
+    reset() {
+      if (resetTimer) {
+        clearTimeout(resetTimer);
+        resetTimer = null;
+      }
+      state = CircuitState.CLOSED;
+      failures = 0;
+      openedAt = null;
     },
 
     async execute<T>(fn: () => Promise<T>): Promise<T> {

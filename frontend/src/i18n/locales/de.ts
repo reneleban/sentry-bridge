@@ -63,19 +63,30 @@ export default {
   dashboard: {
     title: "Dashboard",
     status: {
-      heading: "Verbindungsstatus",
       prusalink: "PrusaLink",
       obico: "Obico",
       camera: "Kamera",
-      janus: "Janus WebRTC",
-      janus_hosted: "hosted",
-      janus_bundled: "bundled",
-      connected: "Verbunden",
-      disconnected: "Getrennt",
     },
-    resilience: {
-      heading: "Resilience",
-      loading: "Lade…",
+    health: {
+      heading: "Service Health",
+      overall: {
+        healthy: "GESUND",
+        degraded: "BEEINTRAECHTIGT",
+        recovering: "VERBINDET",
+        down: "AUSGEFALLEN",
+      },
+      status: {
+        connected: "Verbunden",
+        connecting: "Verbinde...",
+        disconnected: "Getrennt",
+        degraded: "Beeintraechtigt",
+      },
+      reconnect: "Reconnect",
+      last_checked: "Zuletzt: {{n}}s",
+      last_checked_minutes: "Zuletzt: {{n}}m",
+      stale: "Veraltet {{n}}s",
+      advanced_details: "Erweiterte Details",
+      loading: "Laden...",
     },
     printer: {
       heading: "Drucker",
