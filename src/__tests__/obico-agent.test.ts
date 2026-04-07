@@ -28,6 +28,8 @@ const mockDispatcher: PrusaLinkCommandDispatcher = {
   pause: jest.fn().mockResolvedValue(undefined),
   resume: jest.fn().mockResolvedValue(undefined),
   cancel: jest.fn().mockResolvedValue(undefined),
+  startPrint: jest.fn().mockResolvedValue(undefined),
+  uploadFile: jest.fn().mockResolvedValue(undefined),
 };
 
 const idleStatus: PrinterStatus = {

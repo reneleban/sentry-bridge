@@ -49,7 +49,7 @@ export interface PrinterStatusMessage {
       file: {
         name: string | null;
         path: string | null;
-        obico_g_code_file_id: null;
+        obico_g_code_file_id: number | null;
       };
     };
     progress: {
@@ -83,6 +83,8 @@ export interface PrusaLinkCommandDispatcher {
   pause(): Promise<void>;
   resume(): Promise<void>;
   cancel(): Promise<void>;
+  startPrint(filename: string): Promise<void>;
+  uploadFile(filename: string, stream: NodeJS.ReadableStream, size: number): Promise<void>;
 }
 
 export interface ObicoAgent {
@@ -110,7 +112,8 @@ export interface ObicoAgent {
 export function buildStatusMessage(
   status: PrinterStatus,
   job: JobInfo | null,
-  streamUrl?: string
+  streamUrl?: string,
+  fileId?: number | null
 ): PrinterStatusMessage {
   const now = Math.floor(Date.now() / 1000);
   const isPrinting = status.state === "PRINTING";
@@ -159,7 +162,7 @@ export function buildStatusMessage(
         file: {
           name: job?.fileName ?? null,
           path: job?.fileName ? `/usb/${job.fileName}` : null,
-          obico_g_code_file_id: null,
+          obico_g_code_file_id: fileId ?? null,
         },
       },
       progress: {
