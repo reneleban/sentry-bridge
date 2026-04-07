@@ -325,6 +325,61 @@ describe("updateAgentInfo()", () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Circuit Breaker registration
+// ──────────────────────────────────────────────────────────────────────────────
+
+import { circuitBreakerRegistry } from "../lib/health";
+import { CircuitState } from "../lib/circuit-breaker";
+
+describe("Obico agent circuit breaker registration", () => {
+  beforeEach(() => {
+    circuitBreakerRegistry.delete("obico_ws");
+  });
+
+  it("registers a circuit breaker under 'obico_ws' when the agent is created", () => {
+    const http = { fetch: jest.fn() } as any;
+    const dispatcher = {
+      pause: jest.fn(),
+      resume: jest.fn(),
+      cancel: jest.fn(),
+    } as any;
+    createObicoAgent(
+      {
+        serverUrl: "http://localhost:9999",
+        apiKey: "k",
+        streamUrl: "http://x/stream",
+      },
+      http,
+      dispatcher
+    );
+    const cb = circuitBreakerRegistry.get("obico_ws");
+    expect(cb).toBeDefined();
+    expect(cb!.state).toBe(CircuitState.CLOSED);
+  });
+
+  it("allows reset() on the registered breaker to leave state CLOSED", () => {
+    const http = { fetch: jest.fn() } as any;
+    const dispatcher = {
+      pause: jest.fn(),
+      resume: jest.fn(),
+      cancel: jest.fn(),
+    } as any;
+    createObicoAgent(
+      {
+        serverUrl: "http://localhost:9999",
+        apiKey: "k",
+        streamUrl: "http://x/stream",
+      },
+      http,
+      dispatcher
+    );
+    const cb = circuitBreakerRegistry.get("obico_ws")!;
+    cb.reset();
+    expect(cb.state).toBe(CircuitState.CLOSED);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
 // WebSocket: connect / sendStatus / control dispatch
 // ──────────────────────────────────────────────────────────────────────────────
 

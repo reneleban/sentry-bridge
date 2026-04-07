@@ -7,9 +7,10 @@ import {
   buildStatusMessage,
 } from "./types";
 import { PrinterStatus, JobInfo } from "../prusalink/types";
+import { createCircuitBreaker } from "../lib/circuit-breaker";
 import { calculateDelay } from "../lib/retry";
 import { resilienceConfig } from "../lib/env-config";
-import { healthMonitor } from "../lib/health";
+import { healthMonitor, circuitBreakerRegistry } from "../lib/health";
 import { HealthState, ErrorSeverity } from "../lib/health-monitor";
 
 export function createObicoAgent(
@@ -17,6 +18,9 @@ export function createObicoAgent(
   http: HttpFetcher,
   dispatcher: PrusaLinkCommandDispatcher
 ): ObicoAgent {
+  const cb = createCircuitBreaker(resilienceConfig.circuitBreaker);
+  circuitBreakerRegistry.set("obico_ws", cb);
+
   let ws: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let disconnecting = false;
@@ -77,43 +81,66 @@ export function createObicoAgent(
   let reconnectAttempt = 0;
 
   function openWebSocket(url: string): void {
-    ws = new WebSocket(url, {
-      headers: { authorization: `bearer ${config.apiKey}` },
-    });
+    cb.execute(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          ws = new WebSocket(url, {
+            headers: { authorization: `bearer ${config.apiKey}` },
+          });
 
-    ws.on("open", () => {
-      console.log("[obico] WebSocket connected to", url);
-      reconnectAttempt = 0;
-      healthMonitor.setState("obico_ws", HealthState.HEALTHY);
-      if (onOpenCallback) onOpenCallback();
-    });
+          let settled = false;
 
-    ws.on("message", (data) => {
-      console.log("[obico] ← received:", data.toString());
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const msg = JSON.parse(data.toString()) as any;
-        if (msg.passthru) handlePassthru(msg.passthru);
-        if (msg.janus) handleJanus(msg.janus);
-      } catch {
-        // ignore malformed messages
-      }
-    });
+          ws.on("open", () => {
+            console.log("[obico] WebSocket connected to", url);
+            reconnectAttempt = 0;
+            healthMonitor.setState("obico_ws", HealthState.HEALTHY);
+            if (onOpenCallback) onOpenCallback();
+            if (!settled) {
+              settled = true;
+              resolve();
+            }
+          });
 
-    ws.on("close", (code, reason) => {
-      console.log(`[obico] WebSocket closed: ${code} ${reason}`);
-      ws = null;
-      if (!disconnecting) {
-        const msg = `WebSocket closed (code ${code})`;
-        healthMonitor.setState("obico_ws", HealthState.RECOVERING);
-        healthMonitor.pushError("obico_ws", msg, ErrorSeverity.WARN);
-        healthMonitor.incrementRestarts("obico_ws");
-        scheduleReconnect(url);
-      }
-    });
+          ws.on("message", (data) => {
+            console.log("[obico] ← received:", data.toString());
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const msg = JSON.parse(data.toString()) as any;
+              if (msg.passthru) handlePassthru(msg.passthru);
+              if (msg.janus) handleJanus(msg.janus);
+            } catch {
+              // ignore malformed messages
+            }
+          });
 
-    ws.on("error", (err) => {
-      console.error("[obico] WebSocket error:", err.message);
+          ws.on("close", (code, reason) => {
+            console.log(`[obico] WebSocket closed: ${code} ${reason}`);
+            ws = null;
+            if (!disconnecting) {
+              const msg = `WebSocket closed (code ${code})`;
+              healthMonitor.setState("obico_ws", HealthState.RECOVERING);
+              healthMonitor.pushError("obico_ws", msg, ErrorSeverity.WARN);
+              healthMonitor.incrementRestarts("obico_ws");
+              scheduleReconnect(url);
+            }
+            if (!settled) {
+              settled = true;
+              reject(new Error(`WebSocket closed before open (code ${code})`));
+            }
+          });
+
+          ws.on("error", (err) => {
+            console.error("[obico] WebSocket error:", err.message);
+            if (!settled) {
+              settled = true;
+              reject(err);
+            }
+          });
+        })
+    ).catch(() => {
+      // CB opened or connect failed — close handler already schedules reconnect.
+      // Swallow to prevent unhandled rejection; reconnection is driven by the
+      // existing scheduleReconnect path.
     });
   }
 
