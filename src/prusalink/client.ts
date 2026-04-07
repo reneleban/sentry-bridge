@@ -176,8 +176,16 @@ export function createPrusaLinkClient(
       if (!res.ok) throw new Error(`uploadFile failed: ${res.status}`);
     },
 
-    async startPrint(_filename: string): Promise<void> {
-      throw new Error("not implemented");
+    async startPrint(filename: string): Promise<void> {
+      await withRetry(
+        async () => {
+          const res = await request("HEAD", `/api/v1/files/usb/${filename}`);
+          if (!res.ok) throw new Error(`file not indexed yet: ${res.status}`);
+        },
+        { maxAttempts: 10, baseDelayMs: 500, maxDelayMs: 500, jitter: false }
+      );
+      const res = await request("POST", `/api/v1/files/usb/${filename}`);
+      if (!res.ok) throw new Error(`startPrint failed: ${res.status}`);
     },
 
     async deleteFile(filename: string): Promise<void> {

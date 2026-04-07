@@ -423,9 +423,9 @@ describe("PrusaLinkClient", () => {
     it("wirft nach 10 fehlgeschlagenen HEAD-Versuchen", async () => {
       mockFetch.mockResolvedValue(mockResponse(404));
       const client = createPrusaLinkClient(config, fetcher);
-      const promise = client.startPrint("benchy.gcode");
+      const rejectAssertion = expect(client.startPrint("benchy.gcode")).rejects.toThrow();
       await jest.runAllTimersAsync();
-      await expect(promise).rejects.toThrow();
+      await rejectAssertion;
       const headCalls = mockFetch.mock.calls.filter(c => c[1]?.method === "HEAD");
       expect(headCalls).toHaveLength(10);
       const postCalls = mockFetch.mock.calls.filter(c => c[1]?.method === "POST");
@@ -437,9 +437,9 @@ describe("PrusaLinkClient", () => {
         .mockResolvedValueOnce(mockResponse(200)) // HEAD ok
         .mockResolvedValueOnce(mockResponse(500)); // POST fails
       const client = createPrusaLinkClient(config, fetcher);
-      const promise = client.startPrint("benchy.gcode");
+      const rejectAssertion = expect(client.startPrint("benchy.gcode")).rejects.toThrow(/startPrint failed/);
       await jest.runAllTimersAsync();
-      await expect(promise).rejects.toThrow(/startPrint failed/);
+      await rejectAssertion;
     });
   });
 });
