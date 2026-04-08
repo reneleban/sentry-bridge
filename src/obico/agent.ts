@@ -211,12 +211,11 @@ export function createObicoAgent(
       if (!safe_filename || typeof safe_filename !== "string")
         throw new Error("missing safe_filename");
 
-      // SSRF-Mitigation: only https or http from configured Obico server origin
+      // SSRF-Mitigation: only http/https allowed (commands come from authenticated WebSocket)
       const parsed = new URL(url);
-      const obicoOrigin = new URL(config.serverUrl).origin;
-      if (parsed.protocol !== "https:" && parsed.origin !== obicoOrigin) {
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
         throw new Error(
-          `unsafe download url (origin mismatch): ${parsed.origin}`
+          `unsafe download url (disallowed protocol): ${parsed.protocol}`
         );
       }
 

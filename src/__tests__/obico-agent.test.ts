@@ -796,8 +796,8 @@ describe("Print passthru commands", () => {
     }, 500);
   });
 
-  // Test 6 (PRINT-03 SSRF-Mitigation): non-HTTPS non-Obico-origin URL → error ACK
-  it("PRINT-03: SSRF mitigation rejects non-HTTPS non-Obico-origin URL", (done) => {
+  // Test 6 (PRINT-03 SSRF-Mitigation): non-http/https URL → error ACK
+  it("PRINT-03: SSRF mitigation rejects non-http/https URL (e.g. file://)", (done) => {
     const agent = makeAgent();
     agent.connect();
 
@@ -816,10 +816,10 @@ describe("Print passthru commands", () => {
               ref: "R6",
               args: [
                 {
-                  url: "http://internal.lan/secret.gcode",
-                  safe_filename: "secret.gcode",
+                  url: "file:///etc/passwd",
+                  safe_filename: "passwd.gcode",
                   id: 1,
-                  filename: "secret.gcode",
+                  filename: "passwd.gcode",
                 },
               ],
             },
