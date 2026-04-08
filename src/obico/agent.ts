@@ -149,9 +149,9 @@ export function createObicoAgent(
           });
         })
     ).catch(() => {
-      // CB opened or connect failed — close handler already schedules reconnect.
-      // Swallow to prevent unhandled rejection; reconnection is driven by the
-      // existing scheduleReconnect path.
+      // CB open or initial connect failed — close handler only fires if ws was
+      // created. If CB rejected before ws was created, schedule reconnect here.
+      if (!disconnecting && !reconnectTimer) scheduleReconnect(url);
     });
   }
 
