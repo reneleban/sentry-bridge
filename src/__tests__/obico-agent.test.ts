@@ -961,6 +961,9 @@ describe("http.tunnelv2 handler", () => {
   let wss: WebSocketServer;
   let wsPort: number;
 
+  // Track last recorded request for POST/DELETE tests
+  const lastRequest: { method?: string; url?: string; body?: string } = {};
+
   beforeAll((done) => {
     // Start a real local HTTP server to proxy to
     tunnelServer = http.createServer((req, res) => {
@@ -982,6 +985,25 @@ describe("http.tunnelv2 handler", () => {
       if (req.url === "/api/slow") {
         // Respond after 15s — will hit 10s timeout
         setTimeout(() => { try { res.end("late"); } catch { /* closed */ } }, 15000);
+        return;
+      }
+      if (req.url === "/api/files/upload" && req.method === "POST") {
+        let chunks = "";
+        req.on("data", (c: Buffer) => (chunks += c.toString()));
+        req.on("end", () => {
+          lastRequest.method = req.method;
+          lastRequest.url = req.url;
+          lastRequest.body = chunks;
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true }));
+        });
+        return;
+      }
+      if (req.url?.startsWith("/api/files/") && req.method === "DELETE") {
+        lastRequest.method = req.method;
+        lastRequest.url = req.url;
+        res.writeHead(204);
+        res.end();
         return;
       }
       res.writeHead(404);
@@ -1130,8 +1152,8 @@ describe("http.tunnelv2 handler", () => {
     }, 50);
   });
 
-  // Test 4: method != GET → 405, no HTTP call made
-  it("INFRA-02 T4: rejects non-GET method with 405 (no HTTP call)", (done) => {
+  // Test 4: method not in ALLOWED_METHODS → 405, no HTTP call made
+  it("INFRA-02 T4: rejects PUT method with 405 (not in ALLOWED_METHODS)", (done) => {
     let serverSocket: WebSocket;
     wss.on("connection", (ws) => { serverSocket = ws; });
 
@@ -1142,7 +1164,7 @@ describe("http.tunnelv2 handler", () => {
       serverSocket.send(JSON.stringify({
         "http.tunnelv2": {
           ref: "T4",
-          method: "POST",
+          method: "PUT",
           path: "/api/files",
           headers: {},
           timeout: 10,
@@ -1244,6 +1266,98 @@ describe("http.tunnelv2 handler", () => {
         badAgent.disconnect();
         done();
       }).catch((err) => { badAgent.disconnect(); done(err); });
+    }, 50);
+  });
+
+  // Test 8: POST via tunnel with base64 body → body forwarded (FILES-02 over Obico tunnel)
+  it("INFRA-02 T8: forwards POST via tunnel with base64 body (FILES-02 over Obico tunnel)", (done) => {
+    let serverSocket: WebSocket;
+    wss.on("connection", (ws) => { serverSocket = ws; });
+
+    const agent = makeAgent();
+    agent.connect();
+
+    lastRequest.method = undefined;
+    lastRequest.body = undefined;
+
+    setTimeout(() => {
+      serverSocket.send(JSON.stringify({
+        "http.tunnelv2": {
+          ref: "T8",
+          method: "POST",
+          path: "/api/files/upload",
+          headers: { "content-type": "application/octet-stream" },
+          data: Buffer.from("hello").toString("base64"),
+          timeout: 10,
+        },
+      }));
+
+      waitForTunnelResponse(serverSocket, "T8").then((tunnel) => {
+        expect(tunnel.response.status).toBe(200);
+        expect(lastRequest.method).toBe("POST");
+        expect(lastRequest.body).toBe("hello");
+        agent.disconnect();
+        done();
+      }).catch((err) => { agent.disconnect(); done(err); });
+    }, 50);
+  });
+
+  // Test 9: DELETE via tunnel → forwarded (FILES-04 over Obico tunnel)
+  it("INFRA-02 T9: forwards DELETE via tunnel (FILES-04 over Obico tunnel)", (done) => {
+    let serverSocket: WebSocket;
+    wss.on("connection", (ws) => { serverSocket = ws; });
+
+    const agent = makeAgent();
+    agent.connect();
+
+    lastRequest.method = undefined;
+    lastRequest.url = undefined;
+
+    setTimeout(() => {
+      serverSocket.send(JSON.stringify({
+        "http.tunnelv2": {
+          ref: "T9",
+          method: "DELETE",
+          path: "/api/files/test.gcode",
+          headers: {},
+          timeout: 10,
+        },
+      }));
+
+      waitForTunnelResponse(serverSocket, "T9").then((tunnel) => {
+        expect(tunnel.response.status).toBe(204);
+        expect(lastRequest.method).toBe("DELETE");
+        expect(lastRequest.url).toBe("/api/files/test.gcode");
+        agent.disconnect();
+        done();
+      }).catch((err) => { agent.disconnect(); done(err); });
+    }, 50);
+  });
+
+  // Test 10: PUT via tunnel → 405 (PUT via tunnel is not in ALLOWED_METHODS)
+  it("INFRA-02 T10: rejects PUT via tunnel with 405", (done) => {
+    let serverSocket: WebSocket;
+    wss.on("connection", (ws) => { serverSocket = ws; });
+
+    const agent = makeAgent();
+    agent.connect();
+
+    setTimeout(() => {
+      serverSocket.send(JSON.stringify({
+        "http.tunnelv2": {
+          ref: "T10",
+          method: "PUT",
+          path: "/api/files/test.gcode",
+          headers: {},
+          timeout: 10,
+        },
+      }));
+
+      waitForTunnelResponse(serverSocket, "T10").then((tunnel) => {
+        expect(tunnel.response.status).toBe(405);
+        agent.disconnect();
+        done();
+      }).catch((err) => { agent.disconnect(); done(err); });
     }, 50);
   });
 });
