@@ -30,6 +30,8 @@ export function createObicoAgent(
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let disconnecting = false;
   let activePrintFileId: number | null = null;
+  let printStartTs: number | null = null;
+  let lastPrintState: string | null = null;
 
   // Janus signaling — Obico sends {"janus": "<json>"} on the agent WS.
   // We forward to local Janus and send responses back on the same WS.
@@ -498,15 +500,34 @@ export function createObicoAgent(
         );
         return;
       }
-      // PRINT-04: reset fileId when printer becomes IDLE after a print
-      if (status.state === "IDLE" && activePrintFileId !== null) {
+      const isActiveState =
+        status.state === "PRINTING" || status.state === "PAUSED";
+      const wasActiveState =
+        lastPrintState === "PRINTING" || lastPrintState === "PAUSED";
+      const isTerminalState =
+        status.state === "IDLE" ||
+        status.state === "FINISHED" ||
+        status.state === "STOPPED";
+
+      // Track print start timestamp — set once when print begins, stable for entire print
+      if (isActiveState && !wasActiveState) {
+        printStartTs = Math.floor(Date.now() / 1000);
+      } else if (!isActiveState && wasActiveState) {
+        printStartTs = null;
+      }
+
+      // Reset fileId on any terminal state (covers IDLE/FINISHED/STOPPED)
+      if (isTerminalState && activePrintFileId !== null) {
         activePrintFileId = null;
       }
+      lastPrintState = status.state;
+
       const msg = buildStatusMessage(
         status,
         job,
         config.streamUrl,
-        activePrintFileId
+        activePrintFileId,
+        printStartTs
       );
       const json = JSON.stringify(msg);
       console.log(
