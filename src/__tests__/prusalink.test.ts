@@ -223,11 +223,15 @@ describe("PrusaLinkClient", () => {
   });
 
   describe("CB coverage for mutations", () => {
-    async function openCircuitBreaker(client: ReturnType<typeof createPrusaLinkClient>) {
+    async function openCircuitBreaker(
+      client: ReturnType<typeof createPrusaLinkClient>
+    ) {
       const threshold = resilienceConfig.circuitBreaker.threshold;
       mockFetch.mockRejectedValue(new Error("ECONNREFUSED"));
       for (let i = 0; i < threshold; i++) {
-        try { await client.getStatus(); } catch {}
+        try {
+          await client.getStatus();
+        } catch {}
       }
       mockFetch.mockClear();
     }
@@ -257,9 +261,19 @@ describe("PrusaLinkClient", () => {
   describe("listFiles()", () => {
     const filesBody = {
       children: [
-        { name: "benchy.gcode", type: "PRINT_FILE", size: 123456, m_timestamp: 1712476800 },
+        {
+          name: "benchy.gcode",
+          type: "PRINT_FILE",
+          size: 123456,
+          m_timestamp: 1712476800,
+        },
         { name: "calibration", type: "FOLDER", m_timestamp: 1712476800 },
-        { name: "firmware.bbf", type: "FIRMWARE", size: 5000, m_timestamp: 1712476800 },
+        {
+          name: "firmware.bbf",
+          type: "FIRMWARE",
+          size: 5000,
+          m_timestamp: 1712476800,
+        },
       ],
     };
 
@@ -279,7 +293,11 @@ describe("PrusaLinkClient", () => {
     });
 
     it("setzt size auf 0 wenn size fehlt", async () => {
-      const body = { children: [{ name: "nosize.gcode", type: "PRINT_FILE", m_timestamp: 0 }] };
+      const body = {
+        children: [
+          { name: "nosize.gcode", type: "PRINT_FILE", m_timestamp: 0 },
+        ],
+      };
       mockFetch.mockResolvedValue(mockResponse(200, body));
       const client = createPrusaLinkClient(config, fetcher);
       const files = await client.listFiles();
@@ -314,46 +332,47 @@ describe("PrusaLinkClient", () => {
     it("sendet PUT auf /api/v1/files/usb/{filename}", async () => {
       mockFetch.mockResolvedValue(mockResponse(201));
       const client = createPrusaLinkClient(config, fetcher);
-      const stream = Readable.from(Buffer.from("fake gcode"));
-      await client.uploadFile("benchy.gcode", stream, 10);
+      const data = Buffer.from("fake gcode");
+      await client.uploadFile("benchy.gcode", data);
       expect(mockFetch).toHaveBeenCalledWith(
         "http://prusa.local/api/v1/files/usb/benchy.gcode",
         expect.objectContaining({ method: "PUT" })
       );
     });
 
-    it("setzt Content-Length Header auf size", async () => {
+    it("setzt Content-Length Header auf Buffer-Größe", async () => {
       mockFetch.mockResolvedValue(mockResponse(201));
       const client = createPrusaLinkClient(config, fetcher);
-      const stream = Readable.from(Buffer.from("fake gcode"));
-      await client.uploadFile("benchy.gcode", stream, 42);
+      const data = Buffer.from("fake gcode");
+      await client.uploadFile("benchy.gcode", data);
       const call = mockFetch.mock.calls[0][1];
-      expect(call.headers["Content-Length"]).toBe("42");
+      expect(call.headers["Content-Length"]).toBe(String(data.byteLength));
     });
 
     it("setzt Content-Type: application/octet-stream", async () => {
       mockFetch.mockResolvedValue(mockResponse(201));
       const client = createPrusaLinkClient(config, fetcher);
-      const stream = Readable.from(Buffer.from("fake gcode"));
-      await client.uploadFile("benchy.gcode", stream, 10);
+      const data = Buffer.from("fake gcode");
+      await client.uploadFile("benchy.gcode", data);
       const call = mockFetch.mock.calls[0][1];
       expect(call.headers["Content-Type"]).toBe("application/octet-stream");
     });
 
-    it("übergibt stream als body ohne Buffering", async () => {
+    it("übergibt Buffer als body", async () => {
       mockFetch.mockResolvedValue(mockResponse(201));
       const client = createPrusaLinkClient(config, fetcher);
-      const stream = Readable.from(Buffer.from("fake gcode"));
-      await client.uploadFile("benchy.gcode", stream, 10);
+      const data = Buffer.from("fake gcode");
+      await client.uploadFile("benchy.gcode", data);
       const call = mockFetch.mock.calls[0][1];
-      expect(call.body).toBe(stream);
+      expect(call.body).toBe(data);
     });
 
     it("wirft bei non-2xx", async () => {
       mockFetch.mockResolvedValue(mockResponse(500));
       const client = createPrusaLinkClient(config, fetcher);
-      const stream = Readable.from(Buffer.from("fake gcode"));
-      await expect(client.uploadFile("benchy.gcode", stream, 10)).rejects.toThrow(/uploadFile failed/);
+      await expect(
+        client.uploadFile("benchy.gcode", Buffer.from("fake gcode"))
+      ).rejects.toThrow(/uploadFile failed/);
     });
   });
 
@@ -371,7 +390,9 @@ describe("PrusaLinkClient", () => {
     it("wirft bei non-2xx", async () => {
       mockFetch.mockResolvedValue(mockResponse(500));
       const client = createPrusaLinkClient(config, fetcher);
-      await expect(client.deleteFile("benchy.gcode")).rejects.toThrow(/deleteFile failed/);
+      await expect(client.deleteFile("benchy.gcode")).rejects.toThrow(
+        /deleteFile failed/
+      );
     });
 
     it("gibt erfolgreich zurück bei 204", async () => {
@@ -400,8 +421,12 @@ describe("PrusaLinkClient", () => {
       const promise = client.startPrint("benchy.gcode");
       await jest.runAllTimersAsync();
       await promise;
-      const headCalls = mockFetch.mock.calls.filter(c => c[1]?.method === "HEAD");
-      const postCalls = mockFetch.mock.calls.filter(c => c[1]?.method === "POST");
+      const headCalls = mockFetch.mock.calls.filter(
+        (c) => c[1]?.method === "HEAD"
+      );
+      const postCalls = mockFetch.mock.calls.filter(
+        (c) => c[1]?.method === "POST"
+      );
       expect(headCalls).toHaveLength(3);
       expect(postCalls).toHaveLength(1);
     });
@@ -414,8 +439,12 @@ describe("PrusaLinkClient", () => {
       const promise = client.startPrint("benchy.gcode");
       await jest.runAllTimersAsync();
       await promise;
-      const headCalls = mockFetch.mock.calls.filter(c => c[1]?.method === "HEAD");
-      const postCalls = mockFetch.mock.calls.filter(c => c[1]?.method === "POST");
+      const headCalls = mockFetch.mock.calls.filter(
+        (c) => c[1]?.method === "HEAD"
+      );
+      const postCalls = mockFetch.mock.calls.filter(
+        (c) => c[1]?.method === "POST"
+      );
       expect(headCalls).toHaveLength(1);
       expect(postCalls).toHaveLength(1);
     });
@@ -423,12 +452,18 @@ describe("PrusaLinkClient", () => {
     it("wirft nach 10 fehlgeschlagenen HEAD-Versuchen", async () => {
       mockFetch.mockResolvedValue(mockResponse(404));
       const client = createPrusaLinkClient(config, fetcher);
-      const rejectAssertion = expect(client.startPrint("benchy.gcode")).rejects.toThrow();
+      const rejectAssertion = expect(
+        client.startPrint("benchy.gcode")
+      ).rejects.toThrow();
       await jest.runAllTimersAsync();
       await rejectAssertion;
-      const headCalls = mockFetch.mock.calls.filter(c => c[1]?.method === "HEAD");
+      const headCalls = mockFetch.mock.calls.filter(
+        (c) => c[1]?.method === "HEAD"
+      );
       expect(headCalls).toHaveLength(10);
-      const postCalls = mockFetch.mock.calls.filter(c => c[1]?.method === "POST");
+      const postCalls = mockFetch.mock.calls.filter(
+        (c) => c[1]?.method === "POST"
+      );
       expect(postCalls).toHaveLength(0);
     });
 
@@ -437,7 +472,9 @@ describe("PrusaLinkClient", () => {
         .mockResolvedValueOnce(mockResponse(200)) // HEAD ok
         .mockResolvedValueOnce(mockResponse(500)); // POST fails
       const client = createPrusaLinkClient(config, fetcher);
-      const rejectAssertion = expect(client.startPrint("benchy.gcode")).rejects.toThrow(/startPrint failed/);
+      const rejectAssertion = expect(
+        client.startPrint("benchy.gcode")
+      ).rejects.toThrow(/startPrint failed/);
       await jest.runAllTimersAsync();
       await rejectAssertion;
     });

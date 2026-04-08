@@ -10,7 +10,14 @@ import { Readable } from "node:stream";
 // Mock node:fs so download tests don't touch the real filesystem
 jest.mock("node:fs", () => ({
   writeFileSync: jest.fn(),
-  createReadStream: jest.fn(() => new Readable({ read() { this.push(null); } })),
+  createReadStream: jest.fn(
+    () =>
+      new Readable({
+        read() {
+          this.push(null);
+        },
+      })
+  ),
   statSync: jest.fn(() => ({ size: 100 })),
   unlinkSync: jest.fn(),
 }));
@@ -598,7 +605,12 @@ describe("Print passthru commands", () => {
               target: "file_operations",
               func: "start_printer_local_print",
               ref: "R1",
-              args: [{ url: "http://obico.local/files/foo.gcode", agent_signature: "sig" }],
+              args: [
+                {
+                  url: "http://obico.local/files/foo.gcode",
+                  agent_signature: "sig",
+                },
+              ],
             },
           })
         );
@@ -619,7 +631,9 @@ describe("Print passthru commands", () => {
 
   // Test 2 (PRINT-01 Lokal-Error-ACK): startPrint rejects → error ACK
   it("PRINT-01: sends error ACK when startPrint rejects", (done) => {
-    (mockDispatcher.startPrint as jest.Mock).mockRejectedValueOnce(new Error("printer busy"));
+    (mockDispatcher.startPrint as jest.Mock).mockRejectedValueOnce(
+      new Error("printer busy")
+    );
 
     const agent = makeAgent();
     agent.connect();
@@ -688,7 +702,8 @@ describe("Print passthru commands", () => {
     mockFetch.mockResolvedValue({
       ok: true,
       status: 200,
-      arrayBuffer: () => Promise.resolve(Buffer.from("fake gcode content").buffer),
+      arrayBuffer: () =>
+        Promise.resolve(Buffer.from("fake gcode content").buffer),
     } as unknown as Response);
 
     const agent = makeAgent();
@@ -724,8 +739,7 @@ describe("Print passthru commands", () => {
     setTimeout(() => {
       expect(mockDispatcher.uploadFile).toHaveBeenCalledWith(
         "benchy.gcode",
-        expect.anything(),
-        expect.any(Number)
+        expect.any(Buffer)
       );
       expect(mockDispatcher.startPrint).toHaveBeenCalledWith("benchy.gcode");
       const ack = received.find((m) => m.includes('"ref":"R4"'));
@@ -774,8 +788,7 @@ describe("Print passthru commands", () => {
     setTimeout(() => {
       expect(mockDispatcher.uploadFile).toHaveBeenCalledWith(
         "passwd",
-        expect.anything(),
-        expect.any(Number)
+        expect.any(Buffer)
       );
       expect(mockDispatcher.startPrint).toHaveBeenCalledWith("passwd");
       agent.disconnect();
@@ -984,7 +997,13 @@ describe("http.tunnelv2 handler", () => {
       }
       if (req.url === "/api/slow") {
         // Respond after 15s — will hit 10s timeout
-        setTimeout(() => { try { res.end("late"); } catch { /* closed */ } }, 15000);
+        setTimeout(() => {
+          try {
+            res.end("late");
+          } catch {
+            /* closed */
+          }
+        }, 15000);
         return;
       }
       if (req.url === "/api/files/upload" && req.method === "POST") {
@@ -1048,7 +1067,11 @@ describe("http.tunnelv2 handler", () => {
     timeoutMs = 12000
   ): Promise<any> {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`Timeout waiting for tunnel response ref=${ref}`)), timeoutMs);
+      const timer = setTimeout(
+        () =>
+          reject(new Error(`Timeout waiting for tunnel response ref=${ref}`)),
+        timeoutMs
+      );
       serverSocket.on("message", (data) => {
         try {
           const msg = JSON.parse(data.toString());
@@ -1056,7 +1079,9 @@ describe("http.tunnelv2 handler", () => {
             clearTimeout(timer);
             resolve(msg["http.tunnelv2"]);
           }
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       });
     });
   }
@@ -1064,179 +1089,238 @@ describe("http.tunnelv2 handler", () => {
   // Test 1: GET /api/files → proxied → response sent back
   it("INFRA-02 T1: proxies GET /api/files and sends http.tunnelv2 response", (done) => {
     let serverSocket: WebSocket;
-    wss.on("connection", (ws) => { serverSocket = ws; });
+    wss.on("connection", (ws) => {
+      serverSocket = ws;
+    });
 
     const agent = makeAgent();
     agent.connect();
 
     setTimeout(() => {
-      serverSocket.send(JSON.stringify({
-        "http.tunnelv2": {
-          ref: "T1",
-          method: "GET",
-          path: "/api/files",
-          headers: {},
-          timeout: 10,
-        },
-      }));
+      serverSocket.send(
+        JSON.stringify({
+          "http.tunnelv2": {
+            ref: "T1",
+            method: "GET",
+            path: "/api/files",
+            headers: {},
+            timeout: 10,
+          },
+        })
+      );
 
-      waitForTunnelResponse(serverSocket, "T1").then((tunnel) => {
-        expect(tunnel.ref).toBe("T1");
-        expect(tunnel.response.status).toBe(200);
-        expect(typeof tunnel.response.content).toBe("string");
-        expect(typeof tunnel.response.compressed).toBe("boolean");
-        expect(Array.isArray(tunnel.response.cookies)).toBe(true);
-        agent.disconnect();
-        done();
-      }).catch((err) => { agent.disconnect(); done(err); });
+      waitForTunnelResponse(serverSocket, "T1")
+        .then((tunnel) => {
+          expect(tunnel.ref).toBe("T1");
+          expect(tunnel.response.status).toBe(200);
+          expect(typeof tunnel.response.content).toBe("string");
+          expect(typeof tunnel.response.compressed).toBe("boolean");
+          expect(Array.isArray(tunnel.response.cookies)).toBe(true);
+          agent.disconnect();
+          done();
+        })
+        .catch((err) => {
+          agent.disconnect();
+          done(err);
+        });
     }, 50);
   });
 
   // Test 2: Body >= 1000 bytes → compressed=true, content = base64(zlib.deflate)
   it("INFRA-02 T2: compresses body >= 1000 bytes (compressed=true)", (done) => {
     let serverSocket: WebSocket;
-    wss.on("connection", (ws) => { serverSocket = ws; });
+    wss.on("connection", (ws) => {
+      serverSocket = ws;
+    });
 
     const agent = makeAgent();
     agent.connect();
 
     setTimeout(() => {
-      serverSocket.send(JSON.stringify({
-        "http.tunnelv2": {
-          ref: "T2",
-          method: "GET",
-          path: "/api/big",
-          headers: {},
-          timeout: 10,
-        },
-      }));
+      serverSocket.send(
+        JSON.stringify({
+          "http.tunnelv2": {
+            ref: "T2",
+            method: "GET",
+            path: "/api/big",
+            headers: {},
+            timeout: 10,
+          },
+        })
+      );
 
-      waitForTunnelResponse(serverSocket, "T2").then((tunnel) => {
-        expect(tunnel.response.compressed).toBe(true);
-        // Verify round-trip: base64-decode → zlib.inflateSync → "X".repeat(2000)
-        const decoded = Buffer.from(tunnel.response.content, "base64");
-        const inflated = zlib.inflateSync(decoded).toString();
-        expect(inflated).toBe("X".repeat(2000));
-        agent.disconnect();
-        done();
-      }).catch((err) => { agent.disconnect(); done(err); });
+      waitForTunnelResponse(serverSocket, "T2")
+        .then((tunnel) => {
+          expect(tunnel.response.compressed).toBe(true);
+          // Verify round-trip: base64-decode → zlib.inflateSync → "X".repeat(2000)
+          const decoded = Buffer.from(tunnel.response.content, "base64");
+          const inflated = zlib.inflateSync(decoded).toString();
+          expect(inflated).toBe("X".repeat(2000));
+          agent.disconnect();
+          done();
+        })
+        .catch((err) => {
+          agent.disconnect();
+          done(err);
+        });
     }, 50);
   });
 
   // Test 3: Body < 1000 bytes → compressed=false
   it("INFRA-02 T3: does not compress body < 1000 bytes (compressed=false)", (done) => {
     let serverSocket: WebSocket;
-    wss.on("connection", (ws) => { serverSocket = ws; });
+    wss.on("connection", (ws) => {
+      serverSocket = ws;
+    });
 
     const agent = makeAgent();
     agent.connect();
 
     setTimeout(() => {
-      serverSocket.send(JSON.stringify({
-        "http.tunnelv2": {
-          ref: "T3",
-          method: "GET",
-          path: "/api/small",
-          headers: {},
-          timeout: 10,
-        },
-      }));
+      serverSocket.send(
+        JSON.stringify({
+          "http.tunnelv2": {
+            ref: "T3",
+            method: "GET",
+            path: "/api/small",
+            headers: {},
+            timeout: 10,
+          },
+        })
+      );
 
-      waitForTunnelResponse(serverSocket, "T3").then((tunnel) => {
-        expect(tunnel.response.compressed).toBe(false);
-        const decoded = Buffer.from(tunnel.response.content, "base64").toString();
-        expect(decoded).toBe("tiny");
-        agent.disconnect();
-        done();
-      }).catch((err) => { agent.disconnect(); done(err); });
+      waitForTunnelResponse(serverSocket, "T3")
+        .then((tunnel) => {
+          expect(tunnel.response.compressed).toBe(false);
+          const decoded = Buffer.from(
+            tunnel.response.content,
+            "base64"
+          ).toString();
+          expect(decoded).toBe("tiny");
+          agent.disconnect();
+          done();
+        })
+        .catch((err) => {
+          agent.disconnect();
+          done(err);
+        });
     }, 50);
   });
 
   // Test 4: method not in ALLOWED_METHODS → 405, no HTTP call made
   it("INFRA-02 T4: rejects PUT method with 405 (not in ALLOWED_METHODS)", (done) => {
     let serverSocket: WebSocket;
-    wss.on("connection", (ws) => { serverSocket = ws; });
+    wss.on("connection", (ws) => {
+      serverSocket = ws;
+    });
 
     const agent = makeAgent();
     agent.connect();
 
     setTimeout(() => {
-      serverSocket.send(JSON.stringify({
-        "http.tunnelv2": {
-          ref: "T4",
-          method: "PUT",
-          path: "/api/files",
-          headers: {},
-          timeout: 10,
-        },
-      }));
+      serverSocket.send(
+        JSON.stringify({
+          "http.tunnelv2": {
+            ref: "T4",
+            method: "PUT",
+            path: "/api/files",
+            headers: {},
+            timeout: 10,
+          },
+        })
+      );
 
-      waitForTunnelResponse(serverSocket, "T4").then((tunnel) => {
-        expect(tunnel.response.status).toBe(405);
-        agent.disconnect();
-        done();
-      }).catch((err) => { agent.disconnect(); done(err); });
+      waitForTunnelResponse(serverSocket, "T4")
+        .then((tunnel) => {
+          expect(tunnel.response.status).toBe(405);
+          agent.disconnect();
+          done();
+        })
+        .catch((err) => {
+          agent.disconnect();
+          done(err);
+        });
     }, 50);
   });
 
   // Test 5: path not starting with /api/ → 403, no HTTP call
   it("INFRA-02 T5: rejects path outside /api/ with 403", (done) => {
     let serverSocket: WebSocket;
-    wss.on("connection", (ws) => { serverSocket = ws; });
+    wss.on("connection", (ws) => {
+      serverSocket = ws;
+    });
 
     const agent = makeAgent();
     agent.connect();
 
     setTimeout(() => {
-      serverSocket.send(JSON.stringify({
-        "http.tunnelv2": {
-          ref: "T5",
-          method: "GET",
-          path: "/etc/passwd",
-          headers: {},
-          timeout: 10,
-        },
-      }));
+      serverSocket.send(
+        JSON.stringify({
+          "http.tunnelv2": {
+            ref: "T5",
+            method: "GET",
+            path: "/etc/passwd",
+            headers: {},
+            timeout: 10,
+          },
+        })
+      );
 
-      waitForTunnelResponse(serverSocket, "T5").then((tunnel) => {
-        expect(tunnel.response.status).toBe(403);
-        agent.disconnect();
-        done();
-      }).catch((err) => { agent.disconnect(); done(err); });
+      waitForTunnelResponse(serverSocket, "T5")
+        .then((tunnel) => {
+          expect(tunnel.response.status).toBe(403);
+          agent.disconnect();
+          done();
+        })
+        .catch((err) => {
+          agent.disconnect();
+          done(err);
+        });
     }, 50);
   });
 
   // Test 6: timeout — slow endpoint → 504 within ~10s
   it("INFRA-02 T6: returns 504 when local HTTP request times out", (done) => {
     let serverSocket: WebSocket;
-    wss.on("connection", (ws) => { serverSocket = ws; });
+    wss.on("connection", (ws) => {
+      serverSocket = ws;
+    });
 
     const agent = makeAgent();
     agent.connect();
 
     setTimeout(() => {
-      serverSocket.send(JSON.stringify({
-        "http.tunnelv2": {
-          ref: "T6",
-          method: "GET",
-          path: "/api/slow",
-          headers: {},
-          timeout: 10,
-        },
-      }));
+      serverSocket.send(
+        JSON.stringify({
+          "http.tunnelv2": {
+            ref: "T6",
+            method: "GET",
+            path: "/api/slow",
+            headers: {},
+            timeout: 10,
+          },
+        })
+      );
 
-      waitForTunnelResponse(serverSocket, "T6", 12000).then((tunnel) => {
-        expect(tunnel.response.status).toBe(504);
-        agent.disconnect();
-        done();
-      }).catch((err) => { agent.disconnect(); done(err); });
+      waitForTunnelResponse(serverSocket, "T6", 12000)
+        .then((tunnel) => {
+          expect(tunnel.response.status).toBe(504);
+          agent.disconnect();
+          done();
+        })
+        .catch((err) => {
+          agent.disconnect();
+          done(err);
+        });
     }, 50);
   }, 15000);
 
   // Test 7: unreachable port → 502
   it("INFRA-02 T7: returns 502 when local HTTP server is unreachable", (done) => {
     let serverSocket: WebSocket;
-    wss.on("connection", (ws) => { serverSocket = ws; });
+    wss.on("connection", (ws) => {
+      serverSocket = ws;
+    });
 
     // Create agent with a port nobody is listening on
     const badAgent = createObicoAgent(
@@ -1251,28 +1335,37 @@ describe("http.tunnelv2 handler", () => {
     badAgent.connect();
 
     setTimeout(() => {
-      serverSocket.send(JSON.stringify({
-        "http.tunnelv2": {
-          ref: "T7",
-          method: "GET",
-          path: "/api/files",
-          headers: {},
-          timeout: 5,
-        },
-      }));
+      serverSocket.send(
+        JSON.stringify({
+          "http.tunnelv2": {
+            ref: "T7",
+            method: "GET",
+            path: "/api/files",
+            headers: {},
+            timeout: 5,
+          },
+        })
+      );
 
-      waitForTunnelResponse(serverSocket, "T7").then((tunnel) => {
-        expect(tunnel.response.status).toBe(502);
-        badAgent.disconnect();
-        done();
-      }).catch((err) => { badAgent.disconnect(); done(err); });
+      waitForTunnelResponse(serverSocket, "T7")
+        .then((tunnel) => {
+          expect(tunnel.response.status).toBe(502);
+          badAgent.disconnect();
+          done();
+        })
+        .catch((err) => {
+          badAgent.disconnect();
+          done(err);
+        });
     }, 50);
   });
 
   // Test 8: POST via tunnel with base64 body → body forwarded (FILES-02 over Obico tunnel)
   it("INFRA-02 T8: forwards POST via tunnel with base64 body (FILES-02 over Obico tunnel)", (done) => {
     let serverSocket: WebSocket;
-    wss.on("connection", (ws) => { serverSocket = ws; });
+    wss.on("connection", (ws) => {
+      serverSocket = ws;
+    });
 
     const agent = makeAgent();
     agent.connect();
@@ -1281,31 +1374,40 @@ describe("http.tunnelv2 handler", () => {
     lastRequest.body = undefined;
 
     setTimeout(() => {
-      serverSocket.send(JSON.stringify({
-        "http.tunnelv2": {
-          ref: "T8",
-          method: "POST",
-          path: "/api/files/upload",
-          headers: { "content-type": "application/octet-stream" },
-          data: Buffer.from("hello").toString("base64"),
-          timeout: 10,
-        },
-      }));
+      serverSocket.send(
+        JSON.stringify({
+          "http.tunnelv2": {
+            ref: "T8",
+            method: "POST",
+            path: "/api/files/upload",
+            headers: { "content-type": "application/octet-stream" },
+            data: Buffer.from("hello").toString("base64"),
+            timeout: 10,
+          },
+        })
+      );
 
-      waitForTunnelResponse(serverSocket, "T8").then((tunnel) => {
-        expect(tunnel.response.status).toBe(200);
-        expect(lastRequest.method).toBe("POST");
-        expect(lastRequest.body).toBe("hello");
-        agent.disconnect();
-        done();
-      }).catch((err) => { agent.disconnect(); done(err); });
+      waitForTunnelResponse(serverSocket, "T8")
+        .then((tunnel) => {
+          expect(tunnel.response.status).toBe(200);
+          expect(lastRequest.method).toBe("POST");
+          expect(lastRequest.body).toBe("hello");
+          agent.disconnect();
+          done();
+        })
+        .catch((err) => {
+          agent.disconnect();
+          done(err);
+        });
     }, 50);
   });
 
   // Test 9: DELETE via tunnel → forwarded (FILES-04 over Obico tunnel)
   it("INFRA-02 T9: forwards DELETE via tunnel (FILES-04 over Obico tunnel)", (done) => {
     let serverSocket: WebSocket;
-    wss.on("connection", (ws) => { serverSocket = ws; });
+    wss.on("connection", (ws) => {
+      serverSocket = ws;
+    });
 
     const agent = makeAgent();
     agent.connect();
@@ -1314,50 +1416,66 @@ describe("http.tunnelv2 handler", () => {
     lastRequest.url = undefined;
 
     setTimeout(() => {
-      serverSocket.send(JSON.stringify({
-        "http.tunnelv2": {
-          ref: "T9",
-          method: "DELETE",
-          path: "/api/files/test.gcode",
-          headers: {},
-          timeout: 10,
-        },
-      }));
+      serverSocket.send(
+        JSON.stringify({
+          "http.tunnelv2": {
+            ref: "T9",
+            method: "DELETE",
+            path: "/api/files/test.gcode",
+            headers: {},
+            timeout: 10,
+          },
+        })
+      );
 
-      waitForTunnelResponse(serverSocket, "T9").then((tunnel) => {
-        expect(tunnel.response.status).toBe(204);
-        expect(lastRequest.method).toBe("DELETE");
-        expect(lastRequest.url).toBe("/api/files/test.gcode");
-        agent.disconnect();
-        done();
-      }).catch((err) => { agent.disconnect(); done(err); });
+      waitForTunnelResponse(serverSocket, "T9")
+        .then((tunnel) => {
+          expect(tunnel.response.status).toBe(204);
+          expect(lastRequest.method).toBe("DELETE");
+          expect(lastRequest.url).toBe("/api/files/test.gcode");
+          agent.disconnect();
+          done();
+        })
+        .catch((err) => {
+          agent.disconnect();
+          done(err);
+        });
     }, 50);
   });
 
   // Test 10: PUT via tunnel → 405 (PUT via tunnel is not in ALLOWED_METHODS)
   it("INFRA-02 T10: rejects PUT via tunnel with 405", (done) => {
     let serverSocket: WebSocket;
-    wss.on("connection", (ws) => { serverSocket = ws; });
+    wss.on("connection", (ws) => {
+      serverSocket = ws;
+    });
 
     const agent = makeAgent();
     agent.connect();
 
     setTimeout(() => {
-      serverSocket.send(JSON.stringify({
-        "http.tunnelv2": {
-          ref: "T10",
-          method: "PUT",
-          path: "/api/files/test.gcode",
-          headers: {},
-          timeout: 10,
-        },
-      }));
+      serverSocket.send(
+        JSON.stringify({
+          "http.tunnelv2": {
+            ref: "T10",
+            method: "PUT",
+            path: "/api/files/test.gcode",
+            headers: {},
+            timeout: 10,
+          },
+        })
+      );
 
-      waitForTunnelResponse(serverSocket, "T10").then((tunnel) => {
-        expect(tunnel.response.status).toBe(405);
-        agent.disconnect();
-        done();
-      }).catch((err) => { agent.disconnect(); done(err); });
+      waitForTunnelResponse(serverSocket, "T10")
+        .then((tunnel) => {
+          expect(tunnel.response.status).toBe(405);
+          agent.disconnect();
+          done();
+        })
+        .catch((err) => {
+          agent.disconnect();
+          done(err);
+        });
     }, 50);
   });
 });

@@ -3,7 +3,7 @@ import { loadConfig } from "../config/config";
 import { createPrusaLinkClient } from "../prusalink/client";
 import type { FileEntry } from "../prusalink/types";
 import multer from "multer";
-import { createReadStream, unlink } from "node:fs";
+import { readFile, unlink } from "node:fs/promises";
 import { basename } from "node:path";
 
 const upload = multer({
@@ -83,14 +83,14 @@ router.post(
         username: config.prusalink.username,
         password: config.prusalink.password,
       });
-      const stream = createReadStream(tmpPath);
-      await client.uploadFile(originalName, stream, size);
+      const data = await readFile(tmpPath);
+      await client.uploadFile(originalName, data);
       res.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Upload failed";
       res.status(502).json({ message });
     } finally {
-      unlink(tmpPath, () => {
+      unlink(tmpPath).catch(() => {
         /* ignore cleanup errors */
       });
     }

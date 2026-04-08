@@ -1,6 +1,13 @@
 import request from "supertest";
 import express from "express";
 
+const mockReadFile = jest.fn();
+const mockUnlink = jest.fn().mockResolvedValue(undefined);
+jest.mock("node:fs/promises", () => ({
+  readFile: (...args: unknown[]) => mockReadFile(...args),
+  unlink: (...args: unknown[]) => mockUnlink(...args),
+}));
+
 // Mocks: loadConfig + createPrusaLinkClient
 jest.mock("../config/config", () => ({
   loadConfig: jest.fn(() => ({
@@ -37,6 +44,12 @@ beforeEach(() => {
   mockListFiles.mockReset();
   mockUploadFile.mockReset();
   mockDeleteFile.mockReset();
+  mockReadFile.mockReset();
+  mockUnlink.mockReset();
+  mockReadFile.mockImplementation((_path: string) =>
+    Promise.resolve(Buffer.from("G28\n"))
+  );
+  mockUnlink.mockResolvedValue(undefined);
 });
 
 describe("GET /api/files (FILES-01)", () => {
@@ -93,18 +106,18 @@ describe("GET /api/files (FILES-01)", () => {
 });
 
 describe("POST /api/files/upload (FILES-02)", () => {
-  it("returns 200 and calls uploadFile with stream + size", async () => {
+  it("returns 200 and calls uploadFile with Buffer", async () => {
     mockUploadFile.mockResolvedValue(undefined);
+    const fileContent = Buffer.from("G28\nG1 X10\n");
     const res = await request(createTestApp())
       .post("/api/files/upload")
-      .attach("file", Buffer.from("G28\nG1 X10\n"), "test.gcode");
+      .attach("file", fileContent, "test.gcode");
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
     expect(mockUploadFile).toHaveBeenCalledTimes(1);
     const call = mockUploadFile.mock.calls[0];
     expect(call[0]).toBe("test.gcode");
-    expect(typeof call[1].pipe).toBe("function");
-    expect(call[2]).toBe(11);
+    expect(Buffer.isBuffer(call[1])).toBe(true);
   });
 
   it("returns 400 when no file field provided", async () => {
@@ -125,34 +138,26 @@ describe("POST /api/files/upload (FILES-02)", () => {
   });
 
   it("cleans up temp file after successful upload", async () => {
-    const fs = require("node:fs");
-    const tmpPathsSeen: string[] = [];
-    mockUploadFile.mockImplementation((_name: string, stream: any) => {
-      if (stream.path) tmpPathsSeen.push(String(stream.path));
-      return Promise.resolve();
-    });
+    mockUploadFile.mockResolvedValue(undefined);
     const res = await request(createTestApp())
       .post("/api/files/upload")
       .attach("file", Buffer.from("G28\n"), "test.gcode");
     expect(res.status).toBe(200);
-    expect(tmpPathsSeen.length).toBe(1);
-    await new Promise((r) => setTimeout(r, 50));
-    expect(fs.existsSync(tmpPathsSeen[0])).toBe(false);
+    expect(mockReadFile).toHaveBeenCalledTimes(1);
+    const tmpPath = mockReadFile.mock.calls[0][0] as string;
+    expect(tmpPath).toMatch(/\/tmp\/upload-/);
+    expect(mockUnlink).toHaveBeenCalledWith(tmpPath);
   });
 
   it("cleans up temp file when uploadFile rejects", async () => {
-    const fs = require("node:fs");
-    const tmpPathsSeen: string[] = [];
-    mockUploadFile.mockImplementation((_name: string, stream: any) => {
-      if (stream.path) tmpPathsSeen.push(String(stream.path));
-      return Promise.reject(new Error("upload failed"));
-    });
+    mockUploadFile.mockRejectedValue(new Error("upload failed"));
     await request(createTestApp())
       .post("/api/files/upload")
       .attach("file", Buffer.from("G28\n"), "test.gcode");
-    await new Promise((r) => setTimeout(r, 50));
-    expect(tmpPathsSeen.length).toBe(1);
-    expect(fs.existsSync(tmpPathsSeen[0])).toBe(false);
+    expect(mockReadFile).toHaveBeenCalledTimes(1);
+    const tmpPath = mockReadFile.mock.calls[0][0] as string;
+    expect(tmpPath).toMatch(/\/tmp\/upload-/);
+    expect(mockUnlink).toHaveBeenCalledWith(tmpPath);
   });
 });
 

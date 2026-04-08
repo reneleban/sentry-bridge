@@ -163,8 +163,10 @@ export function createObicoAgent(
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function extractArgs(passthru: any): any {
-    if (Array.isArray(passthru.args) && passthru.args.length > 0) return passthru.args[0];
-    if (passthru.kwargs && typeof passthru.kwargs === "object") return passthru.kwargs;
+    if (Array.isArray(passthru.args) && passthru.args.length > 0)
+      return passthru.args[0];
+    if (passthru.kwargs && typeof passthru.kwargs === "object")
+      return passthru.kwargs;
     return {};
   }
 
@@ -206,13 +208,16 @@ export function createObicoAgent(
     try {
       const { url, safe_filename, id, filename } = args;
       if (!url || typeof url !== "string") throw new Error("missing url");
-      if (!safe_filename || typeof safe_filename !== "string") throw new Error("missing safe_filename");
+      if (!safe_filename || typeof safe_filename !== "string")
+        throw new Error("missing safe_filename");
 
       // SSRF-Mitigation: only https or http from configured Obico server origin
       const parsed = new URL(url);
       const obicoOrigin = new URL(config.serverUrl).origin;
       if (parsed.protocol !== "https:" && parsed.origin !== obicoOrigin) {
-        throw new Error(`unsafe download url (origin mismatch): ${parsed.origin}`);
+        throw new Error(
+          `unsafe download url (origin mismatch): ${parsed.origin}`
+        );
       }
 
       // Path-Traversal-Mitigation: basename
@@ -221,21 +226,11 @@ export function createObicoAgent(
         throw new Error("invalid safe_filename after basename");
       }
 
-      // Download to temp file
-      tmpPath = pathJoin(tmpdir(), `obico-${Date.now()}-${cleanName}`);
+      // Download into memory buffer and upload directly (no temp file needed)
       const res = await http.fetch(url, { method: "GET" });
       if (!res.ok) throw new Error(`download failed: ${res.status}`);
       const buf = Buffer.from(await res.arrayBuffer());
-      writeFileSync(tmpPath, buf);
-
-      const { size } = statSync(tmpPath);
-      await new Promise<void>((resolve, reject) => {
-        const readStream = createReadStream(tmpPath!);
-        readStream.on("error", reject);
-        dispatcher.uploadFile(cleanName, readStream, size).then(resolve, reject);
-      });
-      try { unlinkSync(tmpPath); } catch { /* ignore */ }
-      tmpPath = null; // already cleaned up
+      await dispatcher.uploadFile(cleanName, buf);
 
       await dispatcher.startPrint(cleanName);
 
@@ -247,7 +242,11 @@ export function createObicoAgent(
       sendPassthruError(ref, err instanceof Error ? err.message : String(err));
     } finally {
       if (tmpPath) {
-        try { unlinkSync(tmpPath); } catch { /* ignore */ }
+        try {
+          unlinkSync(tmpPath);
+        } catch {
+          /* ignore */
+        }
       }
     }
   }
@@ -259,7 +258,11 @@ export function createObicoAgent(
     headers: Record<string, string>,
     body: Buffer | null,
     timeoutMs: number
-  ): Promise<{ status: number; body: Buffer; respHeaders: Record<string, string> }> {
+  ): Promise<{
+    status: number;
+    body: Buffer;
+    respHeaders: Record<string, string>;
+  }> {
     return new Promise((resolve, reject) => {
       const req = nodeHttp.request(
         { host: "127.0.0.1", port, path, method, headers, timeout: timeoutMs },
@@ -272,12 +275,18 @@ export function createObicoAgent(
               if (typeof v === "string") respHeaders[k] = v;
               else if (Array.isArray(v)) respHeaders[k] = v.join(", ");
             }
-            resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks), respHeaders });
+            resolve({
+              status: res.statusCode ?? 0,
+              body: Buffer.concat(chunks),
+              respHeaders,
+            });
           });
           res.on("error", reject);
         }
       );
-      req.on("timeout", () => { req.destroy(new Error("timeout")); });
+      req.on("timeout", () => {
+        req.destroy(new Error("timeout"));
+      });
       req.on("error", reject);
       if (body && body.length > 0) {
         req.write(body);
@@ -322,7 +331,11 @@ export function createObicoAgent(
     const timeoutMs = Math.min((tunnel.timeout ?? 10) * 1000, 10_000);
 
     // EoP-Mitigation (T-13-03 / Phase 14): Whitelist GET, POST, DELETE
-    if (!ALLOWED_TUNNEL_METHODS.includes(method as typeof ALLOWED_TUNNEL_METHODS[number])) {
+    if (
+      !ALLOWED_TUNNEL_METHODS.includes(
+        method as (typeof ALLOWED_TUNNEL_METHODS)[number]
+      )
+    ) {
       sendTunnelResponse(ref, 405, Buffer.from("method not allowed"), {});
       return;
     }
@@ -343,11 +356,16 @@ export function createObicoAgent(
 
     const port = config.localPort ?? 3000;
     try {
-      const { status, body: respBody, respHeaders } = await doLocalRequest(port, method, path, headers, body, timeoutMs);
+      const {
+        status,
+        body: respBody,
+        respHeaders,
+      } = await doLocalRequest(port, method, path, headers, body, timeoutMs);
       sendTunnelResponse(ref, status, respBody, respHeaders);
     } catch (err) {
-      const isTimeout = (err as NodeJS.ErrnoException)?.code === "ETIMEDOUT"
-        || (err as Error).message === "timeout";
+      const isTimeout =
+        (err as NodeJS.ErrnoException)?.code === "ETIMEDOUT" ||
+        (err as Error).message === "timeout";
       const code = isTimeout ? 504 : 502;
       sendTunnelResponse(ref, code, Buffer.from(String(err)), {});
     }
@@ -369,7 +387,10 @@ export function createObicoAgent(
       }
       return;
     }
-    if (passthru.target === "file_operations" && passthru.func === "start_printer_local_print") {
+    if (
+      passthru.target === "file_operations" &&
+      passthru.func === "start_printer_local_print"
+    ) {
       handleStartLocalPrint(passthru).catch((e) =>
         console.error("[obico] handleStartLocalPrint failed:", e)
       );
@@ -452,7 +473,12 @@ export function createObicoAgent(
       if (status.state === "IDLE" && activePrintFileId !== null) {
         activePrintFileId = null;
       }
-      const msg = buildStatusMessage(status, job, config.streamUrl, activePrintFileId);
+      const msg = buildStatusMessage(
+        status,
+        job,
+        config.streamUrl,
+        activePrintFileId
+      );
       const json = JSON.stringify(msg);
       console.log(
         "[obico] sending status:",
