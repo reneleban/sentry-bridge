@@ -257,6 +257,7 @@ export function createObicoAgent(
     method: string,
     path: string,
     headers: Record<string, string>,
+    body: Buffer | null,
     timeoutMs: number
   ): Promise<{ status: number; body: Buffer; respHeaders: Record<string, string> }> {
     return new Promise((resolve, reject) => {
@@ -278,6 +279,9 @@ export function createObicoAgent(
       );
       req.on("timeout", () => { req.destroy(new Error("timeout")); });
       req.on("error", reject);
+      if (body && body.length > 0) {
+        req.write(body);
+      }
       req.end();
     });
   }
@@ -307,6 +311,8 @@ export function createObicoAgent(
     }
   }
 
+  const ALLOWED_TUNNEL_METHODS = ["GET", "POST", "DELETE"] as const;
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async function handleHttpTunnel(tunnel: any): Promise<void> {
     const ref: string = tunnel.ref;
@@ -315,8 +321,8 @@ export function createObicoAgent(
     const headers: Record<string, string> = tunnel.headers ?? {};
     const timeoutMs = Math.min((tunnel.timeout ?? 10) * 1000, 10_000);
 
-    // EoP-Mitigation (T-13-03): only GET, only /api/*
-    if (method !== "GET") {
+    // EoP-Mitigation (T-13-03 / Phase 14): Whitelist GET, POST, DELETE
+    if (!ALLOWED_TUNNEL_METHODS.includes(method as typeof ALLOWED_TUNNEL_METHODS[number])) {
       sendTunnelResponse(ref, 405, Buffer.from("method not allowed"), {});
       return;
     }
@@ -325,10 +331,20 @@ export function createObicoAgent(
       return;
     }
 
+    // Decode optional request body (Obico sends base64 in tunnel.data for POST)
+    let body: Buffer | null = null;
+    if (typeof tunnel.data === "string" && tunnel.data.length > 0) {
+      try {
+        body = Buffer.from(tunnel.data, "base64");
+      } catch {
+        body = null;
+      }
+    }
+
     const port = config.localPort ?? 3000;
     try {
-      const { status, body, respHeaders } = await doLocalRequest(port, method, path, headers, timeoutMs);
-      sendTunnelResponse(ref, status, body, respHeaders);
+      const { status, body: respBody, respHeaders } = await doLocalRequest(port, method, path, headers, body, timeoutMs);
+      sendTunnelResponse(ref, status, respBody, respHeaders);
     } catch (err) {
       const isTimeout = (err as NodeJS.ErrnoException)?.code === "ETIMEDOUT"
         || (err as Error).message === "timeout";
