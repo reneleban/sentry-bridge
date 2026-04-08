@@ -114,7 +114,8 @@ export function buildStatusMessage(
   status: PrinterStatus,
   job: JobInfo | null,
   streamUrl?: string,
-  fileId?: number | null
+  fileId?: number | null,
+  printStartTs?: number | null
 ): PrinterStatusMessage {
   const now = Math.floor(Date.now() / 1000);
   const isPrinting = status.state === "PRINTING";
@@ -138,7 +139,7 @@ export function buildStatusMessage(
     : null;
 
   return {
-    current_print_ts: isPrinting ? now : -1,
+    current_print_ts: isPrinting || isPaused ? (printStartTs ?? now) : -1,
     ...(webcamEntry ? { settings: { webcams: [webcamEntry] } } : {}),
     status: {
       _ts: now,
