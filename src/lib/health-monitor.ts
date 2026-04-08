@@ -21,11 +21,9 @@ export type ComponentName =
   | "rtp_stream"
   | "janus_relay";
 
-const CRITICAL_COMPONENTS: ComponentName[] = [
-  "prusalink",
-  "camera",
-  "obico_ws",
-];
+// Camera stream broken while printer is reachable warrants a restart.
+// PrusaLink DOWN (printer off) and obico_ws DOWN (reconnect handles it) do not.
+const CRITICAL_COMPONENTS: ComponentName[] = ["camera"];
 
 const MAX_ERRORS = 3;
 
@@ -165,6 +163,9 @@ export function createHealthMonitor(opts: HealthMonitorOptions): HealthMonitor {
     },
 
     isCritical() {
+      // Only critical if printer is reachable but camera stream is broken.
+      // If PrusaLink is down (printer off), a restart won't help.
+      if (health["prusalink"] !== HealthState.HEALTHY) return false;
       const now = Date.now();
       for (const [, since] of downSince) {
         if (now - since > opts.criticalTimeoutMs) return true;
