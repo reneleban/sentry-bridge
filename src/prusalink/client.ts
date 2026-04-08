@@ -30,7 +30,11 @@ export function createPrusaLinkClient(
   const cb = createCircuitBreaker(resilienceConfig.circuitBreaker);
   circuitBreakerRegistry.set("prusalink", cb);
 
-  async function request(method: string, path: string, opts?: RequestInit): Promise<Response> {
+  async function request(
+    method: string,
+    path: string,
+    opts?: RequestInit
+  ): Promise<Response> {
     try {
       const res = await cb.execute(() =>
         http.fetch(`${base}${path}`, { method, ...opts })
@@ -156,21 +160,22 @@ export function createPrusaLinkClient(
       const children: any[] = body.children ?? [];
       return children
         .filter((f: any) => f.type === "PRINT_FILE")
-        .map((f: any): FileEntry => ({
-          name: f.name,
-          path: `/usb/${f.name}`,
-          size: f.size ?? 0,
-          date: new Date((f.m_timestamp ?? 0) * 1000).toISOString(),
-        }));
+        .map(
+          (f: any): FileEntry => ({
+            name: f.name,
+            path: `/usb/${f.name}`,
+            size: f.size ?? 0,
+            date: new Date((f.m_timestamp ?? 0) * 1000).toISOString(),
+          })
+        );
     },
 
-    async uploadFile(filename: string, stream: NodeJS.ReadableStream, size: number): Promise<void> {
+    async uploadFile(filename: string, data: Buffer): Promise<void> {
       const res = await request("PUT", `/api/v1/files/usb/${filename}`, {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        body: stream as any,
+        body: data,
         headers: {
           "Content-Type": "application/octet-stream",
-          "Content-Length": String(size),
+          "Content-Length": String(data.byteLength),
         },
       });
       if (!res.ok) throw new Error(`uploadFile failed: ${res.status}`);

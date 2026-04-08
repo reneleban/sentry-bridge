@@ -57,11 +57,7 @@ export interface PrusaLinkClient {
   resume(): Promise<void>;
   cancel(): Promise<void>;
   listFiles(): Promise<FileEntry[]>;
-  uploadFile(
-    filename: string,
-    stream: NodeJS.ReadableStream,
-    size: number
-  ): Promise<void>;
+  uploadFile(filename: string, data: Buffer): Promise<void>;
   startPrint(filename: string): Promise<void>;
   deleteFile(filename: string): Promise<void>;
 }

@@ -85,7 +85,7 @@ export interface PrusaLinkCommandDispatcher {
   resume(): Promise<void>;
   cancel(): Promise<void>;
   startPrint(filename: string): Promise<void>;
-  uploadFile(filename: string, stream: NodeJS.ReadableStream, size: number): Promise<void>;
+  uploadFile(filename: string, data: Buffer): Promise<void>;
 }
 
 export interface ObicoAgent {
