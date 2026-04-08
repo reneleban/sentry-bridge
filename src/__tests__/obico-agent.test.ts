@@ -553,6 +553,38 @@ describe("WebSocket", () => {
       done();
     }, 200);
   });
+
+  it("dispatches pause via commands[] format (real Obico protocol)", (done) => {
+    const agent = createObicoAgent(
+      { serverUrl: `http://localhost:${port}`, apiKey: "key" },
+      mockHttp,
+      mockDispatcher
+    );
+    agent.connect();
+
+    wss.on("connection", (ws) => {
+      setTimeout(() => {
+        ws.send(
+          JSON.stringify({
+            commands: [
+              {
+                cmd: "pause",
+                args: { retract: 6.5, lift_z: 2.5, tools_off: true },
+                initiator: "api",
+              },
+            ],
+            type: "printer.message",
+          })
+        );
+      }, 50);
+    });
+
+    setTimeout(() => {
+      expect(mockDispatcher.pause).toHaveBeenCalled();
+      agent.disconnect();
+      done();
+    }, 200);
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────────────

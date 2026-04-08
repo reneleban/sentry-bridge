@@ -113,6 +113,7 @@ export function createObicoAgent(
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const msg = JSON.parse(data.toString()) as any;
               if (msg.passthru) handlePassthru(msg.passthru);
+              if (Array.isArray(msg.commands)) handleCommands(msg.commands);
               if (msg.janus) handleJanus(msg.janus);
               if (msg["http.tunnelv2"]) {
                 handleHttpTunnel(msg["http.tunnelv2"]).catch((e) =>
@@ -367,6 +368,29 @@ export function createObicoAgent(
         (err as Error).message === "timeout";
       const code = isTimeout ? 504 : 502;
       sendTunnelResponse(ref, code, Buffer.from(String(err)), {});
+    }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function handleCommands(commands: any[]): void {
+    for (const command of commands) {
+      switch (command.cmd) {
+        case "pause":
+          dispatcher
+            .pause()
+            .catch((e) => console.error("[obico] pause failed:", e.message));
+          break;
+        case "resume":
+          dispatcher
+            .resume()
+            .catch((e) => console.error("[obico] resume failed:", e.message));
+          break;
+        case "cancel":
+          dispatcher
+            .cancel()
+            .catch((e) => console.error("[obico] cancel failed:", e.message));
+          break;
+      }
     }
   }
 
