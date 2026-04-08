@@ -375,13 +375,19 @@ export function createObicoAgent(
     if (passthru.target === "Printer") {
       switch (passthru.func) {
         case "pause":
-          dispatcher.pause().catch(() => undefined);
+          dispatcher
+            .pause()
+            .catch((e) => console.error("[obico] pause failed:", e.message));
           break;
         case "resume":
-          dispatcher.resume().catch(() => undefined);
+          dispatcher
+            .resume()
+            .catch((e) => console.error("[obico] resume failed:", e.message));
           break;
         case "cancel":
-          dispatcher.cancel().catch(() => undefined);
+          dispatcher
+            .cancel()
+            .catch((e) => console.error("[obico] cancel failed:", e.message));
           break;
       }
       return;
