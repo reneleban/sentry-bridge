@@ -6,6 +6,7 @@ import { HealthCard } from "./HealthCard";
 import { PrinterCard } from "./PrinterCard";
 import { CameraCard } from "./CameraCard";
 import { ConfigCard } from "./ConfigCard";
+import { FileBrowserCard } from "./FileBrowserCard";
 
 export function DashboardPage() {
   const { t } = useTranslation();
@@ -28,6 +29,7 @@ export function DashboardPage() {
         <HealthCard />
         <PrinterCard status={status} />
         <CameraCard />
+        <FileBrowserCard status={status} />
         <ConfigCard />
       </Stack>
     </Container>

@@ -21,12 +21,14 @@ jest.mock("../config/config", () => ({
 const mockListFiles = jest.fn();
 const mockUploadFile = jest.fn();
 const mockDeleteFile = jest.fn();
+const mockStartPrint = jest.fn();
 
 jest.mock("../prusalink/client", () => ({
   createPrusaLinkClient: jest.fn(() => ({
     listFiles: mockListFiles,
     uploadFile: mockUploadFile,
     deleteFile: mockDeleteFile,
+    startPrint: mockStartPrint,
   })),
 }));
 
@@ -44,6 +46,7 @@ beforeEach(() => {
   mockListFiles.mockReset();
   mockUploadFile.mockReset();
   mockDeleteFile.mockReset();
+  mockStartPrint.mockReset();
   mockReadFile.mockReset();
   mockUnlink.mockReset();
   mockReadFile.mockImplementation((_path: string) =>
@@ -56,8 +59,9 @@ describe("GET /api/files (FILES-01)", () => {
   it("returns OctoPrint-format file list", async () => {
     mockListFiles.mockResolvedValue([
       {
-        name: "benchy.gcode",
-        path: "benchy.gcode",
+        name: "BENCHY~1.GCO",
+        displayName: "benchy_0.2mm_PETG.gcode",
+        path: "BENCHY~1.GCO",
         size: 12345,
         date: "2025-01-15T10:30:00.000Z",
       },
@@ -69,8 +73,9 @@ describe("GET /api/files (FILES-01)", () => {
     expect(Array.isArray(res.body.files)).toBe(true);
     expect(res.body.files).toHaveLength(1);
     const f = res.body.files[0];
-    expect(f.name).toBe("benchy.gcode");
-    expect(f.path).toBe("benchy.gcode");
+    expect(f.name).toBe("BENCHY~1.GCO");
+    expect(f.display).toBe("benchy_0.2mm_PETG.gcode");
+    expect(f.path).toBe("BENCHY~1.GCO");
     expect(f.type).toBe("machinecode");
     expect(f.typePath).toEqual(["machinecode", "gcode"]);
     expect(f.size).toBe(12345);
@@ -79,8 +84,8 @@ describe("GET /api/files (FILES-01)", () => {
       Math.floor(new Date("2025-01-15T10:30:00.000Z").getTime() / 1000)
     );
     expect(f.origin).toBe("local");
-    expect(f.refs.resource).toBe("/api/files/benchy.gcode");
-    expect(f.refs.download).toBe("/downloads/files/local/benchy.gcode");
+    expect(f.refs.resource).toBe("/api/files/BENCHY~1.GCO");
+    expect(f.refs.download).toBe("/downloads/files/local/BENCHY~1.GCO");
     expect(f.gcodeAnalysis).toEqual({ estimatedPrintTime: null });
   });
 
@@ -137,6 +142,15 @@ describe("POST /api/files/upload (FILES-02)", () => {
     expect(res.body.message).toBe("printer disk full");
   });
 
+  it("returns 409 with clear message when PrusaLink returns 409", async () => {
+    mockUploadFile.mockRejectedValue(new Error("uploadFile failed: 409"));
+    const res = await request(createTestApp())
+      .post("/api/files/upload")
+      .attach("file", Buffer.from("G28\n"), "test.gcode");
+    expect(res.status).toBe(409);
+    expect(res.body.message).toBe("Datei existiert bereits auf dem Drucker");
+  });
+
   it("cleans up temp file after successful upload", async () => {
     mockUploadFile.mockResolvedValue(undefined);
     const res = await request(createTestApp())
@@ -158,6 +172,35 @@ describe("POST /api/files/upload (FILES-02)", () => {
     const tmpPath = mockReadFile.mock.calls[0][0] as string;
     expect(tmpPath).toMatch(/\/tmp\/upload-/);
     expect(mockUnlink).toHaveBeenCalledWith(tmpPath);
+  });
+});
+
+describe("POST /api/files/:name/print (FILES-03)", () => {
+  it("returns 204 and calls startPrint with basename", async () => {
+    mockStartPrint.mockResolvedValue(undefined);
+    const res = await request(createTestApp()).post(
+      "/api/files/benchy.gcode/print"
+    );
+    expect(res.status).toBe(204);
+    expect(mockStartPrint).toHaveBeenCalledWith("benchy.gcode");
+  });
+
+  it("returns 204 for 8.3 short filenames", async () => {
+    mockStartPrint.mockResolvedValue(undefined);
+    const res = await request(createTestApp()).post(
+      "/api/files/MULTIB~3.BGC/print"
+    );
+    expect(res.status).toBe(204);
+    expect(mockStartPrint).toHaveBeenCalledWith("MULTIB~3.BGC");
+  });
+
+  it("returns 502 when startPrint rejects", async () => {
+    mockStartPrint.mockRejectedValue(new Error("printer busy"));
+    const res = await request(createTestApp()).post(
+      "/api/files/benchy.gcode/print"
+    );
+    expect(res.status).toBe(502);
+    expect(res.body.message).toBe("printer busy");
   });
 });
 

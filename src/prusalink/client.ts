@@ -30,6 +30,8 @@ export function createPrusaLinkClient(
   const cb = createCircuitBreaker(resilienceConfig.circuitBreaker);
   circuitBreakerRegistry.set("prusalink", cb);
 
+  let lastLoggedJobState: string | null = null;
+
   async function request(
     method: string,
     path: string,
@@ -117,6 +119,34 @@ export function createPrusaLinkClient(
       if (!res.ok) throw new Error(`getJob failed: ${res.status}`);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const body = (await res.json()) as any;
+      if (body.state !== lastLoggedJobState) {
+        const keys = Object.keys(body);
+        console.log(
+          "[prusalink] getJob keys — state:",
+          body.state,
+          "top-level:",
+          keys.join(","),
+          "| current_layer:",
+          body.current_layer,
+          "| total_layers:",
+          body.total_layers,
+          "| pos_z_mm:",
+          body.pos_z_mm
+        );
+        if (body.progress && typeof body.progress === "object") {
+          console.log(
+            "[prusalink] getJob body.progress keys:",
+            Object.keys(body.progress).join(",")
+          );
+        }
+        if (body.file && typeof body.file === "object") {
+          console.log(
+            "[prusalink] getJob body.file keys:",
+            Object.keys(body.file).join(",")
+          );
+        }
+        lastLoggedJobState = body.state;
+      }
       return {
         id: body.id,
         state: body.state,
@@ -125,6 +155,9 @@ export function createPrusaLinkClient(
         timeRemaining: body.time_remaining,
         fileName: body.file?.name ?? null,
         displayName: body.file?.display_name ?? null,
+        currentLayer: body.current_layer ?? null,
+        totalLayers: body.total_layers ?? null,
+        posZMm: body.pos_z_mm ?? null,
       };
     },
 
@@ -163,6 +196,7 @@ export function createPrusaLinkClient(
         .map(
           (f: any): FileEntry => ({
             name: f.name,
+            displayName: (f.display_name as string) ?? (f.name as string),
             path: `/usb/${f.name}`,
             size: f.size ?? 0,
             date: new Date((f.m_timestamp ?? 0) * 1000).toISOString(),

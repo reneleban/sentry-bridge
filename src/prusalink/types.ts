@@ -11,6 +11,7 @@ export interface PrinterStatus {
     | "PRINTING"
     | "PAUSED"
     | "FINISHED"
+    | "FINISHING"
     | "STOPPED"
     | "ERROR"
     | "ATTENTION";
@@ -35,6 +36,9 @@ export interface JobInfo {
   timeRemaining: number;
   fileName: string | null; // null wenn serieller Druck (kein file-Feld in Response)
   displayName: string | null; // null wenn serieller Druck
+  currentLayer: number | null;
+  totalLayers: number | null;
+  posZMm: number | null;
 }
 
 export interface PrinterInfo {
@@ -43,6 +47,7 @@ export interface PrinterInfo {
 
 export interface FileEntry {
   name: string;
+  displayName: string;
   path: string;
   size: number;
   date: string; // ISO-String

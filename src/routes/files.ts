@@ -19,6 +19,7 @@ const router = Router();
 
 interface OctoPrintFile {
   name: string;
+  display: string;
   path: string;
   type: "machinecode";
   typePath: ["machinecode", "gcode"];
@@ -32,6 +33,7 @@ interface OctoPrintFile {
 function toPrusaLinkFileEntry(entry: FileEntry): OctoPrintFile {
   return {
     name: entry.name,
+    display: entry.displayName,
     path: entry.path,
     type: "machinecode",
     typePath: ["machinecode", "gcode"],
@@ -88,6 +90,12 @@ router.post(
       res.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Upload failed";
+      if (message.includes("409")) {
+        res
+          .status(409)
+          .json({ message: "Datei existiert bereits auf dem Drucker" });
+        return;
+      }
       res.status(502).json({ message });
     } finally {
       unlink(tmpPath).catch(() => {
@@ -96,6 +104,29 @@ router.post(
     }
   }
 );
+
+// POST /api/files/:name/print — FILES-03
+router.post("/:name/print", async (req: Request, res: Response) => {
+  const decoded = decodeURIComponent(String(req.params.name));
+  const filename = basename(decoded);
+  if (!filename || filename === "." || filename === "..") {
+    res.status(400).json({ message: "Invalid filename" });
+    return;
+  }
+  try {
+    const config = loadConfig();
+    const client = createPrusaLinkClient({
+      baseUrl: config.prusalink.url,
+      username: config.prusalink.username,
+      password: config.prusalink.password,
+    });
+    await client.startPrint(filename);
+    res.status(204).send();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Start print failed";
+    res.status(502).json({ message });
+  }
+});
 
 // DELETE /api/files/:name — FILES-04
 router.delete("/:name", async (req: Request, res: Response) => {

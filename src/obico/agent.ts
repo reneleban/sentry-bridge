@@ -32,6 +32,7 @@ export function createObicoAgent(
   let activePrintFileId: number | null = null;
   let printStartTs: number | null = null;
   let lastPrintState: string | null = null;
+  let cachedJob: JobInfo | null = null;
 
   // Janus signaling — Obico sends {"janus": "<json>"} on the agent WS.
   // We forward to local Janus and send responses back on the same WS.
@@ -500,42 +501,81 @@ export function createObicoAgent(
         );
         return;
       }
+
+      // Cache the most recent job when available
+      if (job !== null) {
+        cachedJob = job;
+      }
+
       const isActiveState =
         status.state === "PRINTING" || status.state === "PAUSED";
       const wasActiveState =
         lastPrintState === "PRINTING" || lastPrintState === "PAUSED";
-      const isTerminalState =
-        status.state === "IDLE" ||
-        status.state === "FINISHED" ||
-        status.state === "STOPPED";
+      const isFinishingOrFinished =
+        status.state === "FINISHING" || status.state === "FINISHED";
+      const wasFinishingState =
+        lastPrintState === "FINISHED" || lastPrintState === "FINISHING";
 
       // Track print start timestamp — set once when print begins, stable for entire print
+      let shouldResetAfterSend = false;
       if (isActiveState && !wasActiveState) {
         printStartTs = Math.floor(Date.now() / 1000);
-      } else if (!isActiveState && wasActiveState) {
-        printStartTs = null;
+      } else if (
+        (status.state === "IDLE" || status.state === "STOPPED") &&
+        (wasActiveState || wasFinishingState)
+      ) {
+        // Reset AFTER sending — only when transitioning to true IDLE.
+        // FINISHED is a long-lived state on Prusa Core One (printer waits for
+        // user to acknowledge at panel before moving to IDLE). Every FINISHED
+        // poll must keep the cached job context, otherwise file.name goes null
+        // on subsequent ticks and Obico's UI flickers between "has file" and
+        // "no file" → inconsistent display.
+        shouldResetAfterSend = true;
       }
 
-      // Reset fileId on any terminal state (covers IDLE/FINISHED/STOPPED)
-      if (isTerminalState && activePrintFileId !== null) {
+      // During FINISHING or FINISHED, use cached job if no fresh job available
+      const effectiveJob = job ?? (isFinishingOrFinished ? cachedJob : null);
+
+      // Reset fileId only on true idle/stopped — not FINISHED/FINISHING (preserve for the finishing status message)
+      if (
+        (status.state === "IDLE" || status.state === "STOPPED") &&
+        activePrintFileId !== null
+      ) {
         activePrintFileId = null;
       }
-      lastPrintState = status.state;
 
       const msg = buildStatusMessage(
         status,
-        job,
+        effectiveJob,
         config.streamUrl,
         activePrintFileId,
         printStartTs
       );
       const json = JSON.stringify(msg);
+
+      if (isFinishingOrFinished) {
+        console.log(
+          "[obico] finishing/finished tick — effectiveJob source:",
+          job !== null ? "fresh" : cachedJob !== null ? "cached" : "none",
+          "file.name:",
+          msg.status.job.file.name
+        );
+      }
+
       console.log(
         "[obico] sending status:",
         status.state,
         json.substring(0, 200)
       );
       ws.send(json);
+
+      lastPrintState = status.state;
+
+      // Reset print context AFTER sending — the Done tick needs full job context
+      if (shouldResetAfterSend) {
+        printStartTs = null;
+        cachedJob = null;
+      }
     },
 
     async sendFrame(jpeg: Buffer): Promise<void> {
