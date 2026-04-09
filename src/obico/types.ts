@@ -59,6 +59,9 @@ export interface PrinterStatusMessage {
       printTime: number | null;
       printTimeLeft: number | null;
       filamentUsed: number | null;
+      currentZ: number | null;
+      currentLayer: number | null;
+      totalLayers: number | null;
     };
     temperatures: {
       tool0: { actual: number; target: number };
@@ -119,7 +122,8 @@ export function buildStatusMessage(
 ): PrinterStatusMessage {
   const now = Math.floor(Date.now() / 1000);
   const isPrinting = status.state === "PRINTING";
-  const isPaused = status.state === "PAUSED";
+  const isPaused = status.state === "PAUSED" || status.state === "ATTENTION";
+  const isFinishing = status.state === "FINISHING";
   const isError = status.state === "ERROR";
   const isReady = status.state === "IDLE";
 
@@ -139,7 +143,8 @@ export function buildStatusMessage(
     : null;
 
   return {
-    current_print_ts: isPrinting || isPaused ? (printStartTs ?? now) : -1,
+    current_print_ts:
+      isPrinting || isPaused || isFinishing ? (printStartTs ?? now) : -1,
     ...(webcamEntry ? { settings: { webcams: [webcamEntry] } } : {}),
     status: {
       _ts: now,
@@ -152,7 +157,7 @@ export function buildStatusMessage(
           cancelling: false,
           pausing: false,
           resuming: false,
-          finishing: false,
+          finishing: isFinishing || status.state === "FINISHED",
           closedOrError: isError,
           error: isError,
           ready: isReady,
@@ -162,7 +167,7 @@ export function buildStatusMessage(
       },
       job: {
         file: {
-          name: job?.fileName ?? null,
+          name: job?.displayName ?? job?.fileName ?? null,
           path: job?.fileName ? `/usb/${job.fileName}` : null,
           obico_g_code_file_id: fileId ?? null,
         },
@@ -173,6 +178,9 @@ export function buildStatusMessage(
         printTime: job?.timePrinting ?? null,
         printTimeLeft: job?.timeRemaining ?? null,
         filamentUsed: null,
+        currentZ: job?.posZMm ?? status.axisZ ?? null,
+        currentLayer: job?.currentLayer ?? null,
+        totalLayers: job?.totalLayers ?? null,
       },
       temperatures: {
         tool0: { actual: status.tempNozzle, target: status.targetNozzle },
@@ -190,9 +198,10 @@ function toStateText(state: PrinterStatus["state"]): string {
     PRINTING: "Printing",
     PAUSED: "Paused",
     FINISHED: "Operational",
+    FINISHING: "Finishing",
     STOPPED: "Operational",
     ERROR: "Error",
-    ATTENTION: "Attention",
+    ATTENTION: "Paused",
   };
   return map[state];
 }

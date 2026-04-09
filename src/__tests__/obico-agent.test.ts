@@ -75,6 +75,9 @@ const activeJob: JobInfo = {
   timeRemaining: 2400,
   fileName: "benchy.gcode",
   displayName: "benchy_0.2mm.gcode",
+  currentLayer: null,
+  totalLayers: null,
+  posZMm: null,
 };
 
 beforeEach(() => {
@@ -100,7 +103,7 @@ describe("buildStatusMessage()", () => {
     expect(msg.status.state.text).toBe("Printing");
     expect(msg.status.state.flags.printing).toBe(true);
     expect(msg.current_print_ts).not.toBeNull();
-    expect(msg.status.job.file.name).toBe("benchy.gcode");
+    expect(msg.status.job.file.name).toBe("benchy_0.2mm.gcode");
     expect(msg.status.progress.completion).toBe(42.5);
     expect(msg.status.temperatures.tool0.actual).toBe(26.0);
     expect(msg.status.temperatures.bed.actual).toBe(25.0);
@@ -113,6 +116,21 @@ describe("buildStatusMessage()", () => {
     );
     expect(msg.status.state.flags.paused).toBe(true);
     expect(msg.status.state.flags.printing).toBe(false);
+  });
+
+  it("reflects FINISHED state — finishing flag true, current_print_ts=-1 (Print Done signal)", () => {
+    const printTs = Math.floor(Date.now() / 1000) - 3600;
+    const msg = buildStatusMessage(
+      { ...idleStatus, state: "FINISHED" },
+      activeJob,
+      undefined,
+      null,
+      printTs
+    );
+    expect(msg.status.state.text).toBe("Operational");
+    expect(msg.status.state.flags.finishing).toBe(true);
+    expect(msg.status.state.flags.printing).toBe(false);
+    expect(msg.current_print_ts).toBe(-1);
   });
 
   it("reflects ERROR state", () => {
@@ -140,6 +158,63 @@ describe("buildStatusMessage()", () => {
   it("omits settings.webcams when streamUrl not provided", () => {
     const msg = buildStatusMessage(idleStatus, null);
     expect(msg.settings).toBeUndefined();
+  });
+
+  it("FINISHING state sets finishing flag and preserves current_print_ts", () => {
+    const printTs = Math.floor(Date.now() / 1000) - 600;
+    const msg = buildStatusMessage(
+      { ...idleStatus, state: "FINISHING" },
+      activeJob,
+      undefined,
+      null,
+      printTs
+    );
+    expect(msg.status.state.text).toBe("Finishing");
+    expect(msg.status.state.flags.finishing).toBe(true);
+    expect(msg.status.state.flags.printing).toBe(false);
+    expect(msg.current_print_ts).toBe(printTs);
+  });
+
+  it("maps job.currentLayer/totalLayers into progress", () => {
+    const jobWithLayers: JobInfo = {
+      ...activeJob,
+      currentLayer: 12,
+      totalLayers: 80,
+      posZMm: null,
+    };
+    const msg = buildStatusMessage(printingStatus, jobWithLayers);
+    expect(msg.status.progress.currentLayer).toBe(12);
+    expect(msg.status.progress.totalLayers).toBe(80);
+  });
+
+  it("uses job.posZMm when available, falls back to status.axisZ", () => {
+    const jobWithZ: JobInfo = { ...activeJob, posZMm: 4.6 };
+    const statusWithAxisZ: PrinterStatus = {
+      ...idleStatus,
+      state: "PRINTING",
+      axisZ: 2.0,
+    };
+    const msgWithJobZ = buildStatusMessage(statusWithAxisZ, jobWithZ);
+    expect(msgWithJobZ.status.progress.currentZ).toBe(4.6);
+
+    const jobNoZ: JobInfo = { ...activeJob, posZMm: null };
+    const msgFallback = buildStatusMessage(statusWithAxisZ, jobNoZ);
+    expect(msgFallback.status.progress.currentZ).toBe(2.0);
+  });
+
+  it("FINISHING with null job still produces valid message with finishing flag and preserved ts", () => {
+    const printTs = Math.floor(Date.now() / 1000) - 300;
+    const msg = buildStatusMessage(
+      { ...idleStatus, state: "FINISHING" },
+      null,
+      undefined,
+      null,
+      printTs
+    );
+    expect(msg.status.state.flags.finishing).toBe(true);
+    expect(msg.status.progress.currentLayer).toBeNull();
+    expect(msg.status.progress.totalLayers).toBeNull();
+    expect(msg.current_print_ts).toBe(printTs);
   });
 });
 
@@ -1508,6 +1583,274 @@ describe("http.tunnelv2 handler", () => {
           agent.disconnect();
           done(err);
         });
+    }, 50);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// FINISHING state: Job-Context-Caching and printStartTs persistence (Gap 1 fix)
+// ──────────────────────────────────────────────────────────────────────────────
+
+describe("FINISHING state handling", () => {
+  let wss: WebSocketServer;
+  let port: number;
+
+  beforeEach((done) => {
+    port = getPort();
+    wss = new WebSocketServer({ port });
+    wss.on("listening", done);
+    jest.clearAllMocks();
+  });
+
+  afterEach((done) => {
+    wss.close(done);
+  });
+
+  it("preserves printStartTs and job context across PRINTING → FINISHING → IDLE", (done) => {
+    const agent = createObicoAgent(
+      { serverUrl: `http://localhost:${port}`, apiKey: "key" },
+      mockHttp,
+      mockDispatcher
+    );
+    agent.connect();
+
+    const received: string[] = [];
+
+    const printingJob: JobInfo = {
+      id: 1,
+      state: "PRINTING",
+      progress: 99.0,
+      timePrinting: 3600,
+      timeRemaining: 10,
+      fileName: "test.gcode",
+      displayName: "test_0.2mm.gcode",
+      currentLayer: 80,
+      totalLayers: 80,
+      posZMm: 12.4,
+    };
+
+    const finishingStatus: PrinterStatus = {
+      ...idleStatus,
+      state: "FINISHING",
+    };
+
+    wss.on("connection", (ws) => {
+      ws.on("message", (data) => {
+        received.push(data.toString());
+      });
+    });
+
+    setTimeout(() => {
+      // Step 1: PRINTING with job — sets printStartTs and caches job
+      agent.sendStatus(printingStatus, printingJob);
+
+      setTimeout(() => {
+        // Step 2: FINISHING with job=null — must use cached job + preserve printStartTs
+        agent.sendStatus(finishingStatus, null);
+
+        setTimeout(() => {
+          // Step 3: IDLE — resets printStartTs and cachedJob
+          agent.sendStatus(idleStatus, null);
+
+          setTimeout(() => {
+            const statusMsgs = received
+              .map((m) => {
+                try {
+                  const p = JSON.parse(m);
+                  return p.status !== undefined ? p : null;
+                } catch {
+                  return null;
+                }
+              })
+              .filter(Boolean);
+
+            // We expect at least 3 status messages
+            expect(statusMsgs.length).toBeGreaterThanOrEqual(3);
+
+            // Second message (FINISHING) must have:
+            const finishingMsg = statusMsgs[1];
+            expect(finishingMsg.status.state.flags.finishing).toBe(true);
+            expect(finishingMsg.current_print_ts).toBeGreaterThan(0);
+            expect(finishingMsg.status.job.file.name).toBe("test_0.2mm.gcode");
+
+            // Third message (IDLE) must have current_print_ts === -1
+            const idleMsg = statusMsgs[2];
+            expect(idleMsg.current_print_ts).toBe(-1);
+
+            agent.disconnect();
+            done();
+          }, 50);
+        }, 50);
+      }, 50);
+    }, 50);
+  });
+
+  it("preserves job context on direct PRINTING → FINISHED → IDLE (Prusa Core One path)", (done) => {
+    const agent = createObicoAgent(
+      { serverUrl: `http://localhost:${port}`, apiKey: "key" },
+      mockHttp,
+      mockDispatcher
+    );
+    agent.connect();
+
+    const received: string[] = [];
+
+    const printingJob: JobInfo = {
+      id: 2,
+      state: "PRINTING",
+      progress: 100.0,
+      timePrinting: 7200,
+      timeRemaining: 0,
+      fileName: "test.gcode",
+      displayName: "test_0.2mm.gcode",
+      currentLayer: 100,
+      totalLayers: 100,
+      posZMm: 20.0,
+    };
+
+    const finishedStatus: PrinterStatus = {
+      ...idleStatus,
+      state: "FINISHED",
+    };
+
+    wss.on("connection", (ws) => {
+      ws.on("message", (data) => {
+        received.push(data.toString());
+      });
+    });
+
+    setTimeout(() => {
+      // Step 1: PRINTING with job — sets printStartTs and caches job
+      agent.sendStatus(printingStatus, printingJob);
+
+      setTimeout(() => {
+        // Step 2: FINISHED with job=null — Prusa Core One skips FINISHING entirely
+        // Must use cachedJob as fallback and emit Print Done signal
+        agent.sendStatus(finishedStatus, null);
+
+        setTimeout(() => {
+          // Step 3: IDLE — full reset
+          agent.sendStatus(idleStatus, null);
+
+          setTimeout(() => {
+            const statusMsgs = received
+              .map((m) => {
+                try {
+                  const p = JSON.parse(m);
+                  return p.status !== undefined ? p : null;
+                } catch {
+                  return null;
+                }
+              })
+              .filter(Boolean);
+
+            // We expect at least 3 status messages
+            expect(statusMsgs.length).toBeGreaterThanOrEqual(3);
+
+            // Second message (FINISHED) must carry job context from cache
+            const finishedMsg = statusMsgs[1];
+            expect(finishedMsg.status.state.flags.finishing).toBe(true);
+            expect(finishedMsg.current_print_ts).toBe(-1); // Print Done signal
+            expect(finishedMsg.status.job.file.name).toBe("test_0.2mm.gcode"); // from cachedJob
+            expect(finishedMsg.status.job.file.path).toBe("/usb/test.gcode");
+
+            // Third message (IDLE) must have current_print_ts === -1 and no job name
+            const idleMsg = statusMsgs[2];
+            expect(idleMsg.current_print_ts).toBe(-1);
+            expect(idleMsg.status.job.file.name).toBeNull();
+
+            agent.disconnect();
+            done();
+          }, 50);
+        }, 50);
+      }, 50);
+    }, 50);
+  });
+
+  it("preserves cachedJob across multiple FINISHED polls until IDLE (Core One long FINISHED)", (done) => {
+    const agent = createObicoAgent(
+      { serverUrl: `http://localhost:${port}`, apiKey: "key" },
+      mockHttp,
+      mockDispatcher
+    );
+    agent.connect();
+
+    const received: string[] = [];
+
+    const printingJob: JobInfo = {
+      id: 3,
+      state: "PRINTING",
+      progress: 100.0,
+      timePrinting: 7200,
+      timeRemaining: 0,
+      fileName: "multiconnect.gcode",
+      displayName: "multiconnect_0.2mm.gcode",
+      currentLayer: 100,
+      totalLayers: 100,
+      posZMm: 20.0,
+    };
+
+    const finishedStatus: PrinterStatus = {
+      ...idleStatus,
+      state: "FINISHED",
+    };
+
+    wss.on("connection", (ws) => {
+      ws.on("message", (data) => {
+        received.push(data.toString());
+      });
+    });
+
+    setTimeout(() => {
+      // Step 1: PRINTING — cache the job
+      agent.sendStatus(printingStatus, printingJob);
+
+      setTimeout(() => {
+        // Step 2: 5× FINISHED poll with job=null — printer waiting for user ack at panel
+        agent.sendStatus(finishedStatus, null);
+        agent.sendStatus(finishedStatus, null);
+        agent.sendStatus(finishedStatus, null);
+        agent.sendStatus(finishedStatus, null);
+        agent.sendStatus(finishedStatus, null);
+
+        setTimeout(() => {
+          // Step 3: IDLE — user acknowledged at panel
+          agent.sendStatus(idleStatus, null);
+
+          setTimeout(() => {
+            const statusMsgs = received
+              .map((m) => {
+                try {
+                  const p = JSON.parse(m);
+                  return p.status !== undefined ? p : null;
+                } catch {
+                  return null;
+                }
+              })
+              .filter(Boolean);
+
+            // 1 PRINTING + 5 FINISHED + 1 IDLE = 7 status messages
+            expect(statusMsgs.length).toBeGreaterThanOrEqual(7);
+
+            // All 5 FINISHED messages (indexes 1-5) must carry cachedJob filename
+            for (let i = 1; i <= 5; i++) {
+              const msg = statusMsgs[i];
+              expect(msg.status.state.flags.finishing).toBe(true);
+              expect(msg.current_print_ts).toBe(-1);
+              expect(msg.status.job.file.name).toBe("multiconnect_0.2mm.gcode");
+              expect(msg.status.job.file.path).toBe("/usb/multiconnect.gcode");
+            }
+
+            // IDLE message (index 6) triggers reset → no job filename
+            const idleMsg = statusMsgs[6];
+            expect(idleMsg.current_print_ts).toBe(-1);
+            expect(idleMsg.status.job.file.name).toBeNull();
+
+            agent.disconnect();
+            done();
+          }, 50);
+        }, 50);
+      }, 50);
     }, 50);
   });
 });

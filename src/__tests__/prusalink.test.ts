@@ -104,6 +104,48 @@ describe("PrusaLinkClient", () => {
     });
   });
 
+  describe("getJob() diagnostic logging", () => {
+    it("logs top-level keys once per state change", async () => {
+      const consoleSpy = jest
+        .spyOn(console, "log")
+        .mockImplementation(() => {});
+      try {
+        mockFetch.mockResolvedValue(mockResponse(200, jobBody));
+        const client = createPrusaLinkClient(config, fetcher);
+        await client.getJob();
+        await client.getJob();
+        const getJobKeysCalls = consoleSpy.mock.calls.filter((args) =>
+          String(args[0]).includes("getJob keys")
+        );
+        expect(getJobKeysCalls).toHaveLength(1);
+      } finally {
+        consoleSpy.mockRestore();
+      }
+    });
+
+    it("logs again when state changes", async () => {
+      const consoleSpy = jest
+        .spyOn(console, "log")
+        .mockImplementation(() => {});
+      try {
+        const printingBody = { ...jobBody, state: "PRINTING" };
+        const finishedBody = { ...jobBody, state: "FINISHED" };
+        // New client instance — fresh lastLoggedJobState
+        const client = createPrusaLinkClient(config, fetcher);
+        mockFetch.mockResolvedValueOnce(mockResponse(200, printingBody));
+        await client.getJob();
+        mockFetch.mockResolvedValueOnce(mockResponse(200, finishedBody));
+        await client.getJob();
+        const getJobKeysCalls = consoleSpy.mock.calls.filter((args) =>
+          String(args[0]).includes("getJob keys")
+        );
+        expect(getJobKeysCalls).toHaveLength(2);
+      } finally {
+        consoleSpy.mockRestore();
+      }
+    });
+  });
+
   describe("getJob()", () => {
     it("returns null when printer is idle (204)", async () => {
       mockFetch.mockResolvedValue(mockResponse(204));
@@ -139,6 +181,32 @@ describe("PrusaLinkClient", () => {
       expect(job).not.toBeNull();
       expect(job!.fileName).toBeNull();
       expect(job!.displayName).toBeNull();
+    });
+
+    it("extracts currentLayer/totalLayers/posZMm from response", async () => {
+      const layerJobBody = {
+        ...jobBody,
+        current_layer: 12,
+        total_layers: 80,
+        pos_z_mm: 4.6,
+      };
+      mockFetch.mockResolvedValue(mockResponse(200, layerJobBody));
+      const client = createPrusaLinkClient(config, fetcher);
+      const job = await client.getJob();
+      expect(job).not.toBeNull();
+      expect(job!.currentLayer).toBe(12);
+      expect(job!.totalLayers).toBe(80);
+      expect(job!.posZMm).toBe(4.6);
+    });
+
+    it("returns null for layer/z fields when missing from response", async () => {
+      mockFetch.mockResolvedValue(mockResponse(200, jobBody));
+      const client = createPrusaLinkClient(config, fetcher);
+      const job = await client.getJob();
+      expect(job).not.toBeNull();
+      expect(job!.currentLayer).toBeNull();
+      expect(job!.totalLayers).toBeNull();
+      expect(job!.posZMm).toBeNull();
     });
   });
 
@@ -325,6 +393,42 @@ describe("PrusaLinkClient", () => {
         "http://prusa.local/api/v1/files/usb/",
         expect.objectContaining({ method: "GET" })
       );
+    });
+
+    it("extracts display_name from response", async () => {
+      const body = {
+        children: [
+          {
+            name: "BENCHY~1.GCO",
+            display_name: "benchy_0.2mm_PETG.gcode",
+            type: "PRINT_FILE",
+            size: 123456,
+            m_timestamp: 1712476800,
+          },
+        ],
+      };
+      mockFetch.mockResolvedValue(mockResponse(200, body));
+      const client = createPrusaLinkClient(config, fetcher);
+      const files = await client.listFiles();
+      expect(files[0].name).toBe("BENCHY~1.GCO");
+      expect(files[0].displayName).toBe("benchy_0.2mm_PETG.gcode");
+    });
+
+    it("falls back to name when display_name missing", async () => {
+      const body = {
+        children: [
+          {
+            name: "benchy.gcode",
+            type: "PRINT_FILE",
+            size: 123456,
+            m_timestamp: 1712476800,
+          },
+        ],
+      };
+      mockFetch.mockResolvedValue(mockResponse(200, body));
+      const client = createPrusaLinkClient(config, fetcher);
+      const files = await client.listFiles();
+      expect(files[0].displayName).toBe("benchy.gcode");
     });
   });
 
