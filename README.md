@@ -43,6 +43,8 @@ docker run -d \
 
 Replace `192.168.1.x` with the LAN IP of the machine running Docker. Without this, the WebRTC live stream will not work.
 
+For the full guide → [docs/guide/](docs/guide/)
+
 ## Docker Compose
 
 For persistent setups, use the included `docker-compose.yml` at the repo root, or copy this block:
