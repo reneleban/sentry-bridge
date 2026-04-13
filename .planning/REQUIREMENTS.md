@@ -96,9 +96,9 @@
 | SPEC-01  | Phase 17 | Pending |
 | SPEC-02  | Phase 17 | Pending |
 | ARC-03   | Phase 18 | Complete |
-| ARC-04   | Phase 18 | Pending |
-| SPEC-03  | Phase 18 | Pending |
-| SPEC-04  | Phase 18 | Pending |
+| ARC-04   | Phase 18 | Complete |
+| SPEC-03  | Phase 18 | Complete |
+| SPEC-04  | Phase 18 | Complete |
 | TEST-01  | Phase 18 | Pending |
 | TEST-02  | Phase 18 | Pending |
 | TEST-03  | Phase 18 | Pending |
