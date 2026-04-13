@@ -102,9 +102,9 @@
 | TEST-01  | Phase 18 | Complete |
 | TEST-02  | Phase 18 | Complete |
 | TEST-03  | Phase 18 | Complete |
-| GUIDE-01 | Phase 19 | Pending |
+| GUIDE-01 | Phase 19 | Complete |
 | GUIDE-02 | Phase 19 | Pending |
-| GUIDE-03 | Phase 19 | Pending |
+| GUIDE-03 | Phase 19 | Complete |
 | GUIDE-04 | Phase 19 | Pending |
 | GUIDE-05 | Phase 19 | Pending |
 | GUIDE-06 | Phase 19 | Pending |

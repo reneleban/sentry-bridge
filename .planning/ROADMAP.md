@@ -159,5 +159,5 @@ Plans:
 | 16. Security Audit + Repo Setup               | M4        | 1/1            | Complete    | 2026-04-13 |
 | 17. Architektur-Doku Teil 1 + Spec Grundlagen | M4        | 2/2            | Complete    | 2026-04-13 |
 | 18. Architektur-Doku Teil 2 + Spec + Testing  | M4        | 3/3 | Complete   | 2026-04-13 |
-| 19. User Guide (Diátaxis)                     | M4        | 0/?            | Not started | -          |
+| 19. User Guide (Diátaxis)                     | M4        | 2/3 | In Progress|  |
 | 20. CI, Badges + Public Release               | M4        | 0/?            | Not started | -          |
