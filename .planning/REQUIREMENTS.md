@@ -99,9 +99,9 @@
 | ARC-04   | Phase 18 | Complete |
 | SPEC-03  | Phase 18 | Complete |
 | SPEC-04  | Phase 18 | Complete |
-| TEST-01  | Phase 18 | Pending |
-| TEST-02  | Phase 18 | Pending |
-| TEST-03  | Phase 18 | Pending |
+| TEST-01  | Phase 18 | Complete |
+| TEST-02  | Phase 18 | Complete |
+| TEST-03  | Phase 18 | Complete |
 | GUIDE-01 | Phase 19 | Pending |
 | GUIDE-02 | Phase 19 | Pending |
 | GUIDE-03 | Phase 19 | Pending |

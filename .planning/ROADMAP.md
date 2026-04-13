@@ -50,7 +50,7 @@ See [milestones/v1.1.0-ROADMAP.md](milestones/v1.1.0-ROADMAP.md) for full phase 
 
 - [x] **Phase 16: Security Audit + Repo Setup** — Codebase bereinigt, neues Repo aufgesetzt, Freigabe dokumentiert
 - [x] **Phase 17: Architektur-Doku Teil 1 + Spec Grundlagen** — arc42 Kap. 1-5, Systemübersicht und funktionale Anforderungen
-- [ ] **Phase 18: Architektur-Doku Teil 2 + Spec + Testing** — arc42 Kap. 6-12, NFRs, Interfaces, Teststrategie und -konzept
+- [x] **Phase 18: Architektur-Doku Teil 2 + Spec + Testing** — arc42 Kap. 6-12, NFRs, Interfaces, Teststrategie und -konzept (completed 2026-04-13)
 - [ ] **Phase 19: User Guide (Diátaxis)** — Vollständiger User Guide: Tutorial, How-Tos, Reference, Explanation
 - [ ] **Phase 20: CI, Badges + Public Release** — GitHub Actions, README-Überarbeitung, Release-Tag, Repo public
 
@@ -158,6 +158,6 @@ Plans:
 | 15. Dashboard File Browser                    | M3        | 4/4            | Complete    | 2026-04-09 |
 | 16. Security Audit + Repo Setup               | M4        | 1/1            | Complete    | 2026-04-13 |
 | 17. Architektur-Doku Teil 1 + Spec Grundlagen | M4        | 2/2            | Complete    | 2026-04-13 |
-| 18. Architektur-Doku Teil 2 + Spec + Testing  | M4        | 2/3 | In Progress|  |
+| 18. Architektur-Doku Teil 2 + Spec + Testing  | M4        | 3/3 | Complete   | 2026-04-13 |
 | 19. User Guide (Diátaxis)                     | M4        | 0/?            | Not started | -          |
 | 20. CI, Badges + Public Release               | M4        | 0/?            | Not started | -          |
