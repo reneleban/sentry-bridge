@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-04-13T17:17:38.223Z"
+status: verifying
+last_updated: "2026-04-13T18:15:22.667Z"
 last_activity: 2026-04-13
 progress:
   total_phases: 5
-  completed_phases: 4
-  total_plans: 9
-  completed_plans: 9
+  completed_phases: 5
+  total_plans: 11
+  completed_plans: 11
   percent: 100
 ---
 
@@ -21,13 +21,13 @@ See: `.planning/PROJECT.md` (updated 2026-04-13 nach v1.2.0 Milestone-Start)
 
 **Core value:** Prusa-Drucker + selbst-gehostetes Obico in unter 10 Minuten zum Laufen bringen — Kamerastream und KI-Fehlererkennung inklusive.
 
-**Current focus:** Phase 19 — User Guide (Diátaxis)
+**Current focus:** Phase 20 — CI, Badges + Public Release
 
 ## Current Position
 
-Phase: 19 (User Guide (Diátaxis)) — EXECUTING
-Plan: 3 of 3
-Status: Ready to execute
+Phase: 20 (CI, Badges + Public Release) — EXECUTING
+Plan: 2 of 2
+Status: Phase complete — ready for verification
 Progress: 2/5 phases complete [████░░░░░░] 40%
 Last activity: 2026-04-13
 
