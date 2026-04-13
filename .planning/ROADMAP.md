@@ -52,7 +52,7 @@ See [milestones/v1.1.0-ROADMAP.md](milestones/v1.1.0-ROADMAP.md) for full phase 
 - [x] **Phase 17: Architektur-Doku Teil 1 + Spec Grundlagen** — arc42 Kap. 1-5, Systemübersicht und funktionale Anforderungen
 - [x] **Phase 18: Architektur-Doku Teil 2 + Spec + Testing** — arc42 Kap. 6-12, NFRs, Interfaces, Teststrategie und -konzept (completed 2026-04-13)
 - [x] **Phase 19: User Guide (Diátaxis)** — Vollständiger User Guide: Tutorial, How-Tos, Reference, Explanation (completed 2026-04-13)
-- [ ] **Phase 20: CI, Badges + Public Release** — GitHub Actions, README-Überarbeitung, Release-Tag, Repo public
+- [x] **Phase 20: CI, Badges + Public Release** — GitHub Actions, README-Überarbeitung, Release-Tag, Repo public (completed 2026-04-13)
 
 ---
 
@@ -160,4 +160,4 @@ Plans:
 | 17. Architektur-Doku Teil 1 + Spec Grundlagen | M4        | 2/2            | Complete    | 2026-04-13 |
 | 18. Architektur-Doku Teil 2 + Spec + Testing  | M4        | 3/3 | Complete   | 2026-04-13 |
 | 19. User Guide (Diátaxis)                     | M4        | 3/3 | Complete   | 2026-04-13 |
-| 20. CI, Badges + Public Release               | M4        | 0/?            | Not started | -          |
+| 20. CI, Badges + Public Release               | M4        | 2/2 | Complete   | 2026-04-13 |

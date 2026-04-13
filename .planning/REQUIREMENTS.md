@@ -108,9 +108,9 @@
 | GUIDE-04 | Phase 19 | Pending |
 | GUIDE-05 | Phase 19 | Pending |
 | GUIDE-06 | Phase 19 | Complete |
-| CI-01    | Phase 20 | Pending |
-| CI-02    | Phase 20 | Pending |
-| CI-03    | Phase 20 | Pending |
+| CI-01    | Phase 20 | Complete |
+| CI-02    | Phase 20 | Complete |
+| CI-03    | Phase 20 | Complete |
 | CI-04    | Phase 20 | Pending |
 | REL-01   | Phase 20 | Pending |
 | REL-02   | Phase 20 | Pending |

@@ -21,15 +21,14 @@ See: `.planning/PROJECT.md` (updated 2026-04-13 nach v1.2.0 Milestone-Start)
 
 **Core value:** Prusa-Drucker + selbst-gehostetes Obico in unter 10 Minuten zum Laufen bringen — Kamerastream und KI-Fehlererkennung inklusive.
 
-**Current focus:** Phase 20 — CI, Badges + Public Release
+**Current focus:** Milestone 4 complete (automated) — REL-02 blocked pending GitHub Issue
 
 ## Current Position
 
-Phase: 20 (CI, Badges + Public Release) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
-Progress: 2/5 phases complete [████░░░░░░] 40%
-Last activity: 2026-04-13
+Phase: 20 (CI, Badges + Public Release) — COMPLETE (automated tasks)
+Status: All 5 phases complete — REL-02 (public toggle) blocked by open GitHub Issue
+Progress: 5/5 phases complete [██████████] 100%
+Last activity: 2026-04-13 -- Phase 20 complete (CI workflows, badges, CHANGELOG)
 
 ## Open Blockers
 
@@ -57,9 +56,9 @@ None.
 | ----- | ----------------------------------------- | --------------------------------- | ----------- |
 | 16    | Security Audit + Repo Setup               | SEC-01-03, REPO-01-04             | Complete    |
 | 17    | Architektur-Doku Teil 1 + Spec Grundlagen | ARC-01-02, SPEC-01-02             | Complete    |
-| 18    | Architektur-Doku Teil 2 + Spec + Testing  | ARC-03-04, SPEC-03-04, TEST-01-03 | Not started |
-| 19    | User Guide (Diátaxis)                     | GUIDE-01-06                       | Not started |
-| 20    | CI, Badges + Public Release               | CI-01-04, REL-01-02               | Not started |
+| 18    | Architektur-Doku Teil 2 + Spec + Testing  | ARC-03-04, SPEC-03-04, TEST-01-03 | Complete    |
+| 19    | User Guide (Diátaxis)                     | GUIDE-01-06                       | Complete    |
+| 20    | CI, Badges + Public Release               | CI-01-04, REL-01-02               | Complete*   |
 
 ---
 
