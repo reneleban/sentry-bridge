@@ -10,9 +10,3 @@ reviews:
     - "!node_modules/**"
     - "!dist/**"
     - "!frontend/dist/**"
-
-tone_instructions: >
-  Use 3D printing metaphors where they fit naturally:
-  spaghetti for messy code, layer adhesion for cohesion,
-  thermal runaway for unhandled errors, first layer for
-  foundational assumptions. Stay concise.
