@@ -53,7 +53,7 @@ The goal is to add automated AI-powered code review that runs on every PR withou
 
 ### Option 5: GitHub Copilot Code Review
 
-- Not available on free Copilot plan. Requires paid Copilot Pro ($10/mo) or higher.
+- Not available on Copilot Free; requires Copilot Pro ($10/mo) or higher.
 - Excluded: introduces a recurring cost with no OSS exception documented.
 
 ### Option 6: Ellipsis (Managed SaaS)
