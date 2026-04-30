@@ -4,12 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Vault-Wiki
 
-Dieses Projekt ist im claude-vault registriert:
+This project is registered in the claude-vault:
 `/Users/reneleban/Obsidian/claude-vault/claude-vault/projects/dev-sentry-bridge/wiki/`
 
-Bei Fragen zu Architektur, Entscheidungen, Modul-Struktur oder Stack zuerst dort nachschlagen (`overview.md`, `adrs.md`, `module-map.md`). Für hybride Suche: `qmd query "<frage>"` aus dem Vault-Root.
+For questions about architecture, decisions, module structure, or stack, check there first (`overview.md`, `adrs.md`, `module-map.md`). For hybrid search, run `qmd query "<question>"` from the vault root.
 
-Bei bleibenden Änderungen (Architektur, neue Module, neue ADRs) am Ende der Session `/wiki-sync` ausführen, damit das Wiki aktuell bleibt.
+For lasting changes (architecture, new modules, new ADRs), run `/wiki-sync` at the end of the session to keep the wiki up to date.
 
 ## Hard Rules
 

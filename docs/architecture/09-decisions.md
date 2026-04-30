@@ -18,4 +18,4 @@ Architecture decisions are recorded as Architecture Decision Records (ADRs) in M
 
 Decisions were made iteratively during development (v1.0 through v1.1.0) and documented retroactively as part of the v1.2.0 open-source release preparation. Each ADR captures the problem context, the alternatives considered, and the rationale for the chosen option.
 
-For the full list of validated design decisions, see [`PROJECT.md`](../../.planning/PROJECT.md) (internal GSD planning document).
+For the full list of validated design decisions, see the ADR index above.

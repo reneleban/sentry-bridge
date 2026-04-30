@@ -38,6 +38,6 @@ See [arc42 Chapter 3 — System Scope and Context](../architecture/03-context.md
 | Obico                    | Open-source 3D print monitoring platform with AI failure detection                          |
 | OctoPrint agent protocol | Obico's WebSocket protocol, originally designed for OctoPrint agents                        |
 | Janus                    | Open-source WebRTC gateway; bundled in the SentryBridge container for live stream           |
-| RTSP                     | Real Time Streaming Protocol; camera stream endpoint on Buddy3D board                       |
+| RTSP                     | Real-Time Streaming Protocol; camera stream endpoint on Buddy3D board                       |
 | Circuit Breaker          | Resilience pattern: stops calling a failing endpoint after N failures, resets after timeout |
 | GSD                      | Get Shit Done — internal project workflow tooling (not part of the public product)          |
