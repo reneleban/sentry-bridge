@@ -123,9 +123,11 @@ export function createCamera(config: CameraConfig): CameraModule {
 
   function spawnMjpeg(): void {
     const gen = ++mjpegGeneration;
+    let spawned = false;
     cb.execute(
       () =>
         new Promise<void>((resolve, reject) => {
+          spawned = true;
           proc = spawnFfmpeg([
             "-hide_banner",
             "-nostats",
@@ -144,6 +146,14 @@ export function createCamera(config: CameraConfig): CameraModule {
             "pipe:1",
           ]);
           mjpegStderr = trackStderrTail(proc);
+          // Without a listener, a spawn failure (e.g. ENOENT) crashes the
+          // process. The `close` that follows schedules the restart.
+          proc.on("error", (err) => {
+            if (gen !== mjpegGeneration) return;
+            const msg = `MJPEG ffmpeg error: ${err.message}`;
+            console.error(`[camera] ${msg}`);
+            healthMonitor.pushError("camera", msg, ErrorSeverity.ERROR);
+          });
           // Armed before the first frame too: ffmpeg can hang while connecting.
           resetMjpegWatchdog(MJPEG_FIRST_FRAME_MS);
 
@@ -204,8 +214,13 @@ export function createCamera(config: CameraConfig): CameraModule {
           });
         })
     ).catch(() => {
-      // CB opened or connect failed — restart scheduling is already handled
-      // by the `close` handler above. Swallow to prevent unhandled rejection.
+      // A failed connect already scheduled its restart in the `close` handler.
+      if (spawned || mjpegStopped || gen !== mjpegGeneration) return;
+      // The breaker is OPEN and refused the spawn: retry once it lets a probe
+      // through. This timer is created after the breaker's own reset timer,
+      // so it fires after the breaker has gone HALF_OPEN.
+      const delay = cb.stats.timeUntilHalfOpenMs ?? 0;
+      mjpegRestartTimer = setTimeout(() => spawnMjpeg(), delay);
     });
   }
 

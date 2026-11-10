@@ -398,6 +398,71 @@ describe("Camera", () => {
       expect(logged).not.toContain("ssw0rd");
     });
 
+    it("delivers frames again on its own after the circuit breaker opened", async () => {
+      jest.useFakeTimers();
+      const log = jest.spyOn(console, "log").mockImplementation(() => {});
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+      const procs: cp.ChildProcess[] = [];
+      mockSpawn.mockImplementation(() => {
+        const p = makeMockProcess({});
+        procs.push(p);
+        return p;
+      });
+      const onFrame = jest.fn();
+      const camera = createCamera(config);
+      camera.onFrame(onFrame);
+      camera.start();
+
+      // RTSP unreachable: every ffmpeg exits before its first frame until the
+      // breaker (threshold 5) opens and refuses further spawns.
+      const { circuitBreakerRegistry } = require("../lib/health");
+      const { CircuitState } = require("../lib/circuit-breaker");
+      const breaker = circuitBreakerRegistry.get("camera");
+      while (breaker.state !== CircuitState.OPEN) {
+        procs[procs.length - 1].emit("close", 1);
+        await jest.advanceTimersByTimeAsync(30_000);
+      }
+      const spawnsWhileOpen = procs.length;
+
+      // RTSP is back: once the breaker lets a probe through, ffmpeg is
+      // spawned again and its frame gets through.
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(procs.length).toBe(spawnsWhileOpen + 1);
+      procs[procs.length - 1].stdout!.emit("data", fakeJpeg);
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(breaker.state).toBe(CircuitState.CLOSED);
+      expect(onFrame).toHaveBeenCalledTimes(1);
+      expect(healthMonitor.getComponentStats("camera").state).toBe(
+        HealthState.HEALTHY
+      );
+      camera.stop();
+      log.mockRestore();
+      warn.mockRestore();
+    });
+
+    it("reports a MJPEG ffmpeg that fails to spawn instead of crashing", () => {
+      const pushError = jest.spyOn(healthMonitor, "pushError");
+      const error = jest.spyOn(console, "error").mockImplementation(() => {});
+      const proc = makeMockProcess({});
+      mockSpawn.mockReturnValue(proc);
+      const camera = createCamera(config);
+      camera.start();
+
+      expect(() =>
+        proc.emit("error", new Error("spawn ffmpeg ENOENT"))
+      ).not.toThrow();
+      expect(pushError).toHaveBeenCalledWith(
+        "camera",
+        expect.stringContaining("ENOENT"),
+        ErrorSeverity.ERROR
+      );
+
+      camera.stop();
+      pushError.mockRestore();
+      error.mockRestore();
+    });
+
     it("does not crash if stop() is called before start()", () => {
       const camera = createCamera(config);
       expect(() => camera.stop()).not.toThrow();
