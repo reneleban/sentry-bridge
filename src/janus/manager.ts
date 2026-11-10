@@ -43,9 +43,10 @@ export function createJanusManager(): JanusManager {
   // Bumped whenever a watchdog (re)starts or stops; a probe still in flight
   // from an older chain sees the mismatch and ends instead of re-arming.
   let watchdogGeneration = 0;
-  // Whether the running bundled process has been reported available; reset
-  // on every spawn so each process is reported exactly once.
-  let bundledReported = false;
+  // Whether the current availability has been reported (start() returning
+  // true or the callback). Reset on every bundled spawn and every hosted
+  // outage, so each comes back with exactly one report.
+  let availableReported = false;
   const wsUrl = `ws://127.0.0.1:${JANUS_WS_PORT}`;
 
   function findJanusBinary(): string | null {
@@ -171,9 +172,15 @@ export function createJanusManager(): JanusManager {
       probeWs().then((reachable) => {
         if (stopped || gen !== watchdogGeneration) return;
         if (reachable) {
+          // A Janus that came up after start() gave up waiting.
+          if (!availableReported) {
+            console.log("[janus] Hosted Janus answering late — now available");
+            reportReady();
+          }
           externalPollTimer = setTimeout(tick, INTERVAL_MS);
           return;
         }
+        availableReported = false;
         if (healthMonitor.getHealth().janus !== HealthState.RECOVERING) {
           console.warn("[janus] Hosted Janus unreachable — recovering");
           healthMonitor.setState("janus", HealthState.RECOVERING);
@@ -199,9 +206,7 @@ export function createJanusManager(): JanusManager {
         if (stopped || gen !== watchdogGeneration) return;
         if (reachable) {
           console.log("[janus] Hosted Janus reachable again");
-          restartAttempt = 0;
-          healthMonitor.setState("janus", HealthState.HEALTHY);
-          if (availableCallback) availableCallback();
+          reportReady();
           externalPollTimer = setTimeout(tick, INTERVAL_MS);
         } else {
           scheduleRecoveryPoll();
@@ -225,13 +230,33 @@ export function createJanusManager(): JanusManager {
     return ++watchdogGeneration;
   }
 
-  /** Marks the bundled Janus available and notifies once per process. */
-  function reportBundledReady(): void {
-    if (bundledReported) return;
-    bundledReported = true;
+  function markReady(): void {
+    availableReported = true;
     restartAttempt = 0;
     healthMonitor.setState("janus", HealthState.HEALTHY);
+  }
+
+  /** Marks Janus available and notifies once per availability. */
+  function reportReady(): void {
+    if (availableReported) return;
+    markReady();
     if (availableCallback) availableCallback();
+  }
+
+  /** Spawns the bundled Janus; start() returning true is its report. */
+  async function startBundled(): Promise<boolean> {
+    janusMode = "bundled";
+    spawnEmbedded();
+    const ready = await waitForReady(10000);
+    if (ready) {
+      markReady();
+      console.log("[janus] Bundled Janus ready on", wsUrl);
+    } else {
+      healthMonitor.setState("janus", HealthState.DOWN);
+    }
+    // Also when not ready: a Janus that hangs from the start never exits.
+    startBundledWatchdog();
+    return ready;
   }
 
   /** A hung Janus never exits, so `close` alone can't catch it. */
@@ -247,9 +272,9 @@ export function createJanusManager(): JanusManager {
       if (stopped || gen !== watchdogGeneration) return;
       missed = reachable ? 0 : missed + 1;
       // A Janus that came up after start()/restart gave up waiting.
-      if (reachable && proc && !bundledReported) {
+      if (reachable && proc && !availableReported) {
         console.log("[janus] Bundled Janus answering late — now available");
-        reportBundledReady();
+        reportReady();
       }
       if (missed >= MAX_MISSED_PROBES && proc) {
         console.warn(
@@ -266,7 +291,7 @@ export function createJanusManager(): JanusManager {
 
   function spawnEmbedded(): void {
     if (proc) return;
-    bundledReported = false;
+    availableReported = false;
     const configDir = writeConfig();
     console.log(`[janus] Starting embedded with config dir: ${configDir}`);
 
@@ -298,7 +323,7 @@ export function createJanusManager(): JanusManager {
       setTimeout(async () => {
         if (stopped) return;
         spawnEmbedded();
-        if (await waitForReady()) reportBundledReady();
+        if (await waitForReady()) reportReady();
       }, delay);
     });
 
@@ -323,6 +348,9 @@ export function createJanusManager(): JanusManager {
 
     async start(): Promise<boolean> {
       stopped = false;
+      // A watchdog from an earlier start() must not report the Janus this
+      // start() is waiting for; start() arms a new one.
+      resetWatchdogs();
 
       // Explicit mode override via JANUS_MODE env var
       if (janusModeEnv === "bundled") {
@@ -334,22 +362,8 @@ export function createJanusManager(): JanusManager {
           janusMode = "unavailable";
           return false;
         }
-        janusMode = "bundled";
         console.log(`[janus] Bundled mode (explicit) — binary: ${janusBinary}`);
-        spawnEmbedded();
-        const ready = await waitForReady(10000);
-        if (ready) {
-          // start() returning true is the report; no callback needed.
-          bundledReported = true;
-          restartAttempt = 0;
-          healthMonitor.setState("janus", HealthState.HEALTHY);
-          console.log("[janus] Bundled Janus ready on", wsUrl);
-        } else {
-          healthMonitor.setState("janus", HealthState.DOWN);
-        }
-        // Also when not ready: a Janus that hangs from the start never exits.
-        startBundledWatchdog();
-        return ready;
+        return startBundled();
       }
 
       if (janusModeEnv === "hosted") {
@@ -360,11 +374,14 @@ export function createJanusManager(): JanusManager {
         );
         const ready = await waitForReady(15000);
         if (ready) {
-          healthMonitor.setState("janus", HealthState.HEALTHY);
-          startHostedWatchdog();
+          markReady();
         } else {
+          availableReported = false;
           healthMonitor.setState("janus", HealthState.DOWN);
         }
+        // Also when not ready: its recovery poll reports a Janus that comes
+        // up later.
+        startHostedWatchdog();
         return ready;
       }
 
@@ -374,7 +391,7 @@ export function createJanusManager(): JanusManager {
       if (quickProbe) {
         janusMode = "hosted";
         console.log("[janus] Hosted Janus detected on", wsUrl);
-        healthMonitor.setState("janus", HealthState.HEALTHY);
+        markReady();
         startHostedWatchdog();
         return true;
       }
@@ -382,22 +399,8 @@ export function createJanusManager(): JanusManager {
       // auto: 2. local binary → bundled
       janusBinary = findJanusBinary();
       if (janusBinary) {
-        janusMode = "bundled";
         console.log(`[janus] Bundled mode — binary: ${janusBinary}`);
-        spawnEmbedded();
-        const ready = await waitForReady(10000);
-        if (ready) {
-          // start() returning true is the report; no callback needed.
-          bundledReported = true;
-          restartAttempt = 0;
-          healthMonitor.setState("janus", HealthState.HEALTHY);
-          console.log("[janus] Bundled Janus ready on", wsUrl);
-        } else {
-          healthMonitor.setState("janus", HealthState.DOWN);
-        }
-        // Also when not ready: a Janus that hangs from the start never exits.
-        startBundledWatchdog();
-        return ready;
+        return startBundled();
       }
 
       // auto: 3. no binary — wait longer for slow-starting hosted sidecar
@@ -406,7 +409,7 @@ export function createJanusManager(): JanusManager {
       if (hostedReady) {
         janusMode = "hosted";
         console.log("[janus] Hosted Janus became ready on", wsUrl);
-        healthMonitor.setState("janus", HealthState.HEALTHY);
+        markReady();
         startHostedWatchdog();
         return true;
       }

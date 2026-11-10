@@ -221,6 +221,31 @@ describe("Janus manager, bundled mode", () => {
     expect(proc.kill).not.toHaveBeenCalled();
     manager.stop();
   });
+
+  it("reports a Janus that answers during a second start() only through start()", async () => {
+    const proc = makeProcess();
+    mockSpawn.mockReturnValue(proc);
+    janusAnswers = false;
+    const manager = createJanusManager();
+    const available = jest.fn();
+    manager.onAvailable(available);
+    const first = manager.start();
+    await tick(11_250);
+    expect(await first).toBe(false);
+
+    // Janus comes up while the second start() is still waiting for it and
+    // just before that start() would probe again.
+    const second = manager.start();
+    await tick(9_050);
+    janusAnswers = true;
+    await tick(1_000);
+    expect(await second).toBe(true);
+    expect(available).not.toHaveBeenCalled();
+
+    await tick(60_000);
+    expect(available).not.toHaveBeenCalled();
+    manager.stop();
+  });
 });
 
 describe("Janus manager, hosted mode", () => {
@@ -285,6 +310,23 @@ describe("Janus manager, hosted mode", () => {
     janusAnswers = true;
     await tick(5_000);
     expect(recovered).toHaveBeenCalledTimes(1);
+    expect(healthMonitor.getHealth().janus).toBe(HealthState.HEALTHY);
+    manager.stop();
+  });
+
+  it("reports a hosted Janus that comes up only after start() gave up", async () => {
+    janusAnswers = false;
+    const manager = createJanusManager();
+    const available = jest.fn();
+    manager.onAvailable(available);
+    const started = manager.start();
+    await tick(16_000);
+    expect(await started).toBe(false);
+    expect(available).not.toHaveBeenCalled();
+
+    janusAnswers = true;
+    await tick(30_000);
+    expect(available).toHaveBeenCalledTimes(1);
     expect(healthMonitor.getHealth().janus).toBe(HealthState.HEALTHY);
     manager.stop();
   });
