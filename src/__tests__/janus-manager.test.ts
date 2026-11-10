@@ -19,6 +19,8 @@ jest.mock("../lib/env-config", () => ({
 import * as cp from "child_process";
 import WebSocket from "ws";
 import { createJanusManager } from "../janus/manager";
+import { healthMonitor } from "../lib/health";
+import { HealthState } from "../lib/health-monitor";
 
 const mockSpawn = cp.spawn as jest.MockedFunction<typeof cp.spawn>;
 const MockWebSocket = WebSocket as unknown as jest.Mock;
@@ -193,6 +195,42 @@ describe("Janus manager, hosted mode", () => {
     MockWebSocket.mockClear();
     await tick(10_000);
     expect(MockWebSocket).toHaveBeenCalledTimes(1);
+    manager.stop();
+  });
+
+  it("detects and recovers from every outage, not just the first", async () => {
+    const manager = createJanusManager();
+    const recovered = jest.fn();
+    manager.onCrash(recovered);
+    const started = manager.start();
+    await tick(0);
+    expect(await started).toBe(true);
+
+    for (let outage = 1; outage <= 3; outage++) {
+      janusAnswers = false;
+      await tick(10_000);
+      janusAnswers = true;
+      await tick(5_000);
+      expect(recovered).toHaveBeenCalledTimes(outage);
+    }
+    manager.stop();
+  });
+
+  it("keeps watching when Janus drops while already marked recovering", async () => {
+    const manager = createJanusManager();
+    const recovered = jest.fn();
+    manager.onCrash(recovered);
+    const started = manager.start();
+    await tick(0);
+    expect(await started).toBe(true);
+
+    healthMonitor.setState("janus", HealthState.RECOVERING);
+    janusAnswers = false;
+    await tick(10_000);
+    janusAnswers = true;
+    await tick(5_000);
+    expect(recovered).toHaveBeenCalledTimes(1);
+    expect(healthMonitor.getHealth().janus).toBe(HealthState.HEALTHY);
     manager.stop();
   });
 });
