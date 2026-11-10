@@ -164,10 +164,11 @@ export function createJanusManager(): JanusManager {
         return;
       probeWs().then((reachable) => {
         if (stopped || gen !== watchdogGeneration) return;
-        if (
-          !reachable &&
-          healthMonitor.getHealth().janus !== HealthState.RECOVERING
-        ) {
+        if (reachable) {
+          externalPollTimer = setTimeout(tick, INTERVAL_MS);
+          return;
+        }
+        if (healthMonitor.getHealth().janus !== HealthState.RECOVERING) {
           console.warn("[janus] Hosted Janus unreachable — recovering");
           healthMonitor.setState("janus", HealthState.RECOVERING);
           healthMonitor.pushError(
@@ -176,33 +177,33 @@ export function createJanusManager(): JanusManager {
             ErrorSeverity.ERROR
           );
           healthMonitor.incrementRestarts("janus");
-          scheduleExternalRecoveryPoll(gen);
-        } else if (reachable) {
-          externalPollTimer = setTimeout(tick, INTERVAL_MS);
         }
+        scheduleRecoveryPoll();
       });
     }
-    externalPollTimer = setTimeout(tick, INTERVAL_MS);
-  }
 
-  /** Poll WS until reachable again — only used in external mode. */
-  function scheduleExternalRecoveryPoll(gen: number): void {
-    if (stopped || gen !== watchdogGeneration) return;
-    const delay = calculateDelay(restartAttempt, resilienceConfig.retry);
-    restartAttempt++;
-    externalPollTimer = setTimeout(async () => {
+    /** Poll WS until reachable again, then resume the regular ticks. */
+    function scheduleRecoveryPoll(): void {
       if (stopped || gen !== watchdogGeneration) return;
-      const reachable = await probeWs();
-      if (stopped || gen !== watchdogGeneration) return;
-      if (reachable) {
-        console.log("[janus] Hosted Janus reachable again");
-        restartAttempt = 0;
-        healthMonitor.setState("janus", HealthState.HEALTHY);
-        if (crashCallback) crashCallback();
-      } else {
-        scheduleExternalRecoveryPoll(gen);
-      }
-    }, delay);
+      const delay = calculateDelay(restartAttempt, resilienceConfig.retry);
+      restartAttempt++;
+      externalPollTimer = setTimeout(async () => {
+        if (stopped || gen !== watchdogGeneration) return;
+        const reachable = await probeWs();
+        if (stopped || gen !== watchdogGeneration) return;
+        if (reachable) {
+          console.log("[janus] Hosted Janus reachable again");
+          restartAttempt = 0;
+          healthMonitor.setState("janus", HealthState.HEALTHY);
+          if (crashCallback) crashCallback();
+          externalPollTimer = setTimeout(tick, INTERVAL_MS);
+        } else {
+          scheduleRecoveryPoll();
+        }
+      }, delay);
+    }
+
+    externalPollTimer = setTimeout(tick, INTERVAL_MS);
   }
 
   /** Ends any running watchdog chain; returns the generation for a new one. */
