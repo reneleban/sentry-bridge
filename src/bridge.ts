@@ -386,6 +386,8 @@ async function onOpenCallback(): Promise<void> {
 async function startJanusRelay(): Promise<void> {
   if (!state.agent || !state.janusManager) return;
   const printerId = await state.agent.fetchPrinterId();
+  // stopBridge() may have stopped the relay while the ID was being fetched.
+  if (shuttingDown) return;
   if (!printerId) {
     console.warn(
       "[bridge] Could not fetch printer ID — Janus relay not started"
@@ -407,14 +409,20 @@ async function startJanusRelay(): Promise<void> {
   console.log(`[bridge] Janus relay active for printer ${printerId}`);
 }
 
-const RTP_PORT = 17732;
+/** Local UDP port the camera's H.264 RTP stream is sent to Janus on. */
+export const JANUS_RTP_PORT = 17732;
 
-/** Points the agent at Janus and starts RTP stream and relay. */
-async function startVideoPath(restartRtp: boolean): Promise<void> {
+/**
+ * Points the agent at Janus and (re)starts RTP stream and relay. Called after
+ * awaiting Janus, so it re-checks for a shutdown that began in the meantime.
+ */
+async function startVideoPath(): Promise<void> {
+  if (shuttingDown) return;
   if (!state.janusManager || !state.agent || !state.camera) return;
   state.agent.setJanusUrl(state.janusManager.wsUrl);
-  if (restartRtp) state.camera.stopRtpStream();
-  state.camera.startRtpStream(RTP_PORT);
+  // A Janus that restarted has lost the old RTP session.
+  state.camera.stopRtpStream();
+  state.camera.startRtpStream(JANUS_RTP_PORT);
   await startJanusRelay();
 }
 
@@ -426,9 +434,8 @@ function registerJanusRecovery(
   manager: ReturnType<typeof createJanusManager>
 ): void {
   manager.onAvailable(() => {
-    if (shuttingDown) return;
-    console.log("[bridge] Janus ready again — rebuilding RTP stream and relay");
-    startVideoPath(true).catch((err) =>
+    console.log("[bridge] Janus available — starting RTP stream and relay");
+    startVideoPath().catch((err) =>
       console.error("[bridge] Janus recovery failed:", err)
     );
   });
@@ -439,7 +446,7 @@ async function startJanus(): Promise<void> {
   const available = await state.janusManager.start();
   setJanusMode(state.janusManager.mode);
   if (!available) return;
-  await startVideoPath(false);
+  await startVideoPath();
 }
 
 export async function startBridge(port = 3000): Promise<void> {

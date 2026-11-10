@@ -1,10 +1,4 @@
 import * as http from "http";
-import { startBridge, stopBridge, reconnectComponent } from "../bridge";
-import { createCamera } from "../camera/camera";
-import { createObicoAgent } from "../obico/agent";
-import { createJanusManager } from "../janus/manager";
-import { createJanusRelay } from "../janus/relay";
-import { createPrusaLinkClient } from "../prusalink/client";
 
 jest.mock("../camera/camera");
 jest.mock("../camera/registry");
@@ -26,76 +20,112 @@ jest.mock("../config/config", () => ({
   configEmitter: { removeAllListeners: jest.fn(), on: jest.fn() },
 }));
 
-const RTP_PORT = 17732;
 const flush = () => new Promise((r) => setImmediate(r));
-
-const camera = {
-  start: jest.fn(),
-  onFrame: jest.fn(),
-  startRtpStream: jest.fn(),
-  stopRtpStream: jest.fn(),
-  stopGracefully: jest.fn().mockResolvedValue(undefined),
-};
-const agent = {
-  connect: jest.fn((onOpen: () => Promise<void>) => void onOpen()),
-  disconnect: jest.fn(),
-  updateAgentInfo: jest.fn().mockResolvedValue(undefined),
-  setJanusUrl: jest.fn(),
-  fetchPrinterId: jest.fn().mockResolvedValue(42),
-  sendStatus: jest.fn(),
-};
-let availableCallbacks: Array<() => void> = [];
-const janusManager = {
-  start: jest.fn().mockResolvedValue(false),
-  stop: jest.fn(),
-  wsUrl: "ws://127.0.0.1:8188",
-  mode: "bundled",
-  onAvailable: jest.fn((cb: () => void) => {
-    availableCallbacks = [cb];
-  }),
-};
-const relay = { start: jest.fn(), stop: jest.fn() };
-
-(createCamera as jest.Mock).mockReturnValue(camera);
-(createObicoAgent as jest.Mock).mockReturnValue(agent);
-(createJanusManager as jest.Mock).mockReturnValue(janusManager);
-(createJanusRelay as jest.Mock).mockReturnValue(relay);
-(createPrusaLinkClient as jest.Mock).mockReturnValue({
-  getStatus: jest.fn().mockResolvedValue({}),
-  getJob: jest.fn().mockResolvedValue({}),
-});
 
 const server = {
   close: jest.fn((cb?: () => void) => cb?.()),
   closeAllConnections: jest.fn(),
 } as unknown as http.Server;
 
-describe("bridge — Janus that becomes available after a failed first start", () => {
-  beforeAll(async () => {
-    jest.spyOn(console, "log").mockImplementation(() => {});
-    jest.spyOn(console, "warn").mockImplementation(() => {});
-    await startBridge(3000);
-    await flush();
+/**
+ * Starts a fresh bridge (its module state allows one start per load) whose
+ * Janus manager reports `janusStart` as the result of its first start().
+ */
+async function startBridgeWith(janusStart: Promise<boolean>) {
+  jest.resetModules();
+  const bridge = await import("../bridge");
+  const { createCamera } = await import("../camera/camera");
+  const { createObicoAgent } = await import("../obico/agent");
+  const { createJanusManager } = await import("../janus/manager");
+  const { createJanusRelay } = await import("../janus/relay");
+  const { createPrusaLinkClient } = await import("../prusalink/client");
+
+  const camera = {
+    start: jest.fn(),
+    onFrame: jest.fn(),
+    startRtpStream: jest.fn(),
+    stopRtpStream: jest.fn(),
+    stopGracefully: jest.fn().mockResolvedValue(undefined),
+  };
+  const agent = {
+    connect: jest.fn((onOpen: () => Promise<void>) => void onOpen()),
+    disconnect: jest.fn(),
+    updateAgentInfo: jest.fn().mockResolvedValue(undefined),
+    setJanusUrl: jest.fn(),
+    fetchPrinterId: jest.fn().mockResolvedValue(42),
+    sendStatus: jest.fn(),
+  };
+  let available: () => void = () => {
+    throw new Error("no availability handler registered");
+  };
+  const janusManager = {
+    start: jest.fn().mockReturnValueOnce(janusStart).mockResolvedValue(false),
+    stop: jest.fn(),
+    wsUrl: "ws://127.0.0.1:8188",
+    mode: "bundled",
+    onAvailable: jest.fn((cb: () => void) => {
+      available = cb;
+    }),
+  };
+  const relay = { start: jest.fn(), stop: jest.fn() };
+
+  (createCamera as jest.Mock).mockReturnValue(camera);
+  (createObicoAgent as jest.Mock).mockReturnValue(agent);
+  (createJanusManager as jest.Mock).mockReturnValue(janusManager);
+  (createJanusRelay as jest.Mock).mockReturnValue(relay);
+  (createPrusaLinkClient as jest.Mock).mockReturnValue({
+    getStatus: jest.fn().mockResolvedValue({}),
+    getJob: jest.fn().mockResolvedValue({}),
   });
 
-  afterAll(async () => {
-    await stopBridge(server);
+  await bridge.startBridge(3000);
+  await flush();
+  return {
+    bridge,
+    camera,
+    agent,
+    janusManager,
+    createJanusRelay: createJanusRelay as jest.Mock,
+    relay,
+    janusAvailable: () => available(),
+  };
+}
+
+describe("bridge — Janus that becomes available after a failed first start", () => {
+  let stop: () => Promise<void> = async () => {};
+
+  beforeEach(() => {
+    jest.spyOn(console, "log").mockImplementation(() => {});
+    jest.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    await stop();
+    stop = async () => {};
     jest.restoreAllMocks();
   });
 
-  it("starts no video path while Janus is unavailable", () => {
+  async function startUnavailable() {
+    const ctx = await startBridgeWith(Promise.resolve(false));
+    stop = () => ctx.bridge.stopBridge(server);
+    return ctx;
+  }
+
+  it("starts no video path while Janus is unavailable", async () => {
+    const { janusManager, camera, createJanusRelay } = await startUnavailable();
     expect(janusManager.start).toHaveBeenCalledTimes(1);
     expect(camera.startRtpStream).not.toHaveBeenCalled();
     expect(createJanusRelay).not.toHaveBeenCalled();
   });
 
   it("starts RTP stream and Janus relay once Janus comes up", async () => {
-    expect(availableCallbacks).toHaveLength(1);
-    availableCallbacks[0]();
+    const { bridge, agent, camera, createJanusRelay, relay, janusAvailable } =
+      await startUnavailable();
+    janusAvailable();
     await flush();
 
     expect(agent.setJanusUrl).toHaveBeenCalledWith("ws://127.0.0.1:8188");
-    expect(camera.startRtpStream).toHaveBeenCalledWith(RTP_PORT);
+    expect(camera.startRtpStream).toHaveBeenCalledWith(bridge.JANUS_RTP_PORT);
     expect(createJanusRelay).toHaveBeenCalledWith(
       "ws://127.0.0.1:8188",
       "http://obico",
@@ -105,8 +135,9 @@ describe("bridge — Janus that becomes available after a failed first start", (
     expect(relay.start).toHaveBeenCalled();
   });
 
-  it("does not register another recovery handler when Janus is started again on reconnect", async () => {
-    await reconnectComponent("obico");
+  it("does not register another availability handler when Janus is started again on reconnect", async () => {
+    const { bridge, janusManager } = await startUnavailable();
+    await bridge.reconnectComponent("obico");
     await flush();
 
     expect(janusManager.start).toHaveBeenCalledTimes(2);
@@ -114,7 +145,50 @@ describe("bridge — Janus that becomes available after a failed first start", (
   });
 
   it("stops the RTP stream on shutdown", async () => {
-    await stopBridge(server);
+    const { bridge, camera } = await startUnavailable();
+    await bridge.stopBridge(server);
     expect(camera.stopRtpStream).toHaveBeenCalled();
+  });
+});
+
+describe("bridge — Janus that becomes available during shutdown", () => {
+  beforeEach(() => {
+    jest.spyOn(console, "log").mockImplementation(() => {});
+    jest.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it("starts no RTP stream once shutdown has begun", async () => {
+    let resolveStart: (ready: boolean) => void = () => {};
+    const { bridge, camera, createJanusRelay } = await startBridgeWith(
+      new Promise((r) => (resolveStart = r))
+    );
+
+    await bridge.stopBridge(server);
+    resolveStart(true);
+    await flush();
+
+    expect(camera.startRtpStream).not.toHaveBeenCalled();
+    expect(createJanusRelay).not.toHaveBeenCalled();
+  });
+
+  it("starts no Janus relay once shutdown has begun", async () => {
+    const { bridge, agent, createJanusRelay, janusAvailable } =
+      await startBridgeWith(Promise.resolve(false));
+    let resolvePrinterId: (id: number) => void = () => {};
+    agent.fetchPrinterId.mockReturnValue(
+      new Promise((r) => (resolvePrinterId = r))
+    );
+
+    janusAvailable();
+    await flush();
+    await bridge.stopBridge(server);
+    resolvePrinterId(42);
+    await flush();
+
+    expect(createJanusRelay).not.toHaveBeenCalled();
   });
 });
