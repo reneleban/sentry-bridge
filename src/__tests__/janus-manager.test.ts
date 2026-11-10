@@ -172,7 +172,7 @@ describe("Janus manager, bundled mode", () => {
     mockSpawn.mockReturnValue(proc);
     const manager = createJanusManager();
     const available = jest.fn();
-    manager.onCrash(available);
+    manager.onAvailable(available);
     const started = manager.start();
     await tick(0);
     expect(await started).toBe(true);
@@ -187,7 +187,7 @@ describe("Janus manager, bundled mode", () => {
     mockSpawn.mockReturnValueOnce(first).mockReturnValueOnce(second);
     const manager = createJanusManager();
     const available = jest.fn();
-    manager.onCrash(available);
+    manager.onAvailable(available);
     const started = manager.start();
     await tick(0);
     expect(await started).toBe(true);
@@ -205,7 +205,7 @@ describe("Janus manager, bundled mode", () => {
     janusAnswers = false;
     const manager = createJanusManager();
     const available = jest.fn();
-    manager.onCrash(available);
+    manager.onAvailable(available);
     const started = manager.start();
     await tick(11_000);
     expect(await started).toBe(false);
@@ -256,7 +256,7 @@ describe("Janus manager, hosted mode", () => {
   it("detects and recovers from every outage, not just the first", async () => {
     const manager = createJanusManager();
     const recovered = jest.fn();
-    manager.onCrash(recovered);
+    manager.onAvailable(recovered);
     const started = manager.start();
     await tick(0);
     expect(await started).toBe(true);
@@ -274,7 +274,7 @@ describe("Janus manager, hosted mode", () => {
   it("keeps watching when Janus drops while already marked recovering", async () => {
     const manager = createJanusManager();
     const recovered = jest.fn();
-    manager.onCrash(recovered);
+    manager.onAvailable(recovered);
     const started = manager.start();
     await tick(0);
     expect(await started).toBe(true);

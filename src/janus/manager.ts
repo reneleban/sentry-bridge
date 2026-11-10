@@ -24,15 +24,18 @@ export interface JanusManager {
   readonly wsUrl: string;
   /** Mode is set once at startup and never changes. */
   readonly mode: JanusMode;
-  /** Called by bridge when Janus becomes ready after a crash. */
-  onCrash(callback: () => void): void;
+  /**
+   * Called whenever Janus becomes available other than through start()'s
+   * result: after a restart, a hosted recovery, or a late first availability.
+   */
+  onAvailable(callback: () => void): void;
 }
 
 export function createJanusManager(): JanusManager {
   let proc: ChildProcess | null = null;
   let stopped = false;
   let restartAttempt = 0;
-  let crashCallback: (() => void) | null = null;
+  let availableCallback: (() => void) | null = null;
   let janusBinary: string | null = null;
   let janusMode: JanusMode = "unavailable";
   let externalPollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -198,7 +201,7 @@ export function createJanusManager(): JanusManager {
           console.log("[janus] Hosted Janus reachable again");
           restartAttempt = 0;
           healthMonitor.setState("janus", HealthState.HEALTHY);
-          if (crashCallback) crashCallback();
+          if (availableCallback) availableCallback();
           externalPollTimer = setTimeout(tick, INTERVAL_MS);
         } else {
           scheduleRecoveryPoll();
@@ -228,7 +231,7 @@ export function createJanusManager(): JanusManager {
     bundledReported = true;
     restartAttempt = 0;
     healthMonitor.setState("janus", HealthState.HEALTHY);
-    if (crashCallback) crashCallback();
+    if (availableCallback) availableCallback();
   }
 
   /** A hung Janus never exits, so `close` alone can't catch it. */
@@ -314,8 +317,8 @@ export function createJanusManager(): JanusManager {
       return janusMode;
     },
 
-    onCrash(callback: () => void): void {
-      crashCallback = callback;
+    onAvailable(callback: () => void): void {
+      availableCallback = callback;
     },
 
     async start(): Promise<boolean> {

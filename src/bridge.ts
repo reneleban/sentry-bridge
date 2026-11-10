@@ -425,7 +425,7 @@ async function startVideoPath(restartRtp: boolean): Promise<void> {
 function registerJanusRecovery(
   manager: ReturnType<typeof createJanusManager>
 ): void {
-  manager.onCrash(() => {
+  manager.onAvailable(() => {
     if (shuttingDown) return;
     console.log("[bridge] Janus ready again — rebuilding RTP stream and relay");
     startVideoPath(true).catch((err) =>

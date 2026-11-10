@@ -44,14 +44,14 @@ const agent = {
   fetchPrinterId: jest.fn().mockResolvedValue(42),
   sendStatus: jest.fn(),
 };
-let crashCallbacks: Array<() => void> = [];
+let availableCallbacks: Array<() => void> = [];
 const janusManager = {
   start: jest.fn().mockResolvedValue(false),
   stop: jest.fn(),
   wsUrl: "ws://127.0.0.1:8188",
   mode: "bundled",
-  onCrash: jest.fn((cb: () => void) => {
-    crashCallbacks = [cb];
+  onAvailable: jest.fn((cb: () => void) => {
+    availableCallbacks = [cb];
   }),
 };
 const relay = { start: jest.fn(), stop: jest.fn() };
@@ -90,8 +90,8 @@ describe("bridge — Janus that becomes available after a failed first start", (
   });
 
   it("starts RTP stream and Janus relay once Janus comes up", async () => {
-    expect(crashCallbacks).toHaveLength(1);
-    crashCallbacks[0]();
+    expect(availableCallbacks).toHaveLength(1);
+    availableCallbacks[0]();
     await flush();
 
     expect(agent.setJanusUrl).toHaveBeenCalledWith("ws://127.0.0.1:8188");
@@ -110,7 +110,7 @@ describe("bridge — Janus that becomes available after a failed first start", (
     await flush();
 
     expect(janusManager.start).toHaveBeenCalledTimes(2);
-    expect(janusManager.onCrash).toHaveBeenCalledTimes(1);
+    expect(janusManager.onAvailable).toHaveBeenCalledTimes(1);
   });
 
   it("stops the RTP stream on shutdown", async () => {
