@@ -40,6 +40,9 @@ export function createJanusManager(): JanusManager {
   // Bumped whenever a watchdog (re)starts or stops; a probe still in flight
   // from an older chain sees the mismatch and ends instead of re-arming.
   let watchdogGeneration = 0;
+  // Whether the running bundled process has been reported available; reset
+  // on every spawn so each process is reported exactly once.
+  let bundledReported = false;
   const wsUrl = `ws://127.0.0.1:${JANUS_WS_PORT}`;
 
   function findJanusBinary(): string | null {
@@ -219,6 +222,15 @@ export function createJanusManager(): JanusManager {
     return ++watchdogGeneration;
   }
 
+  /** Marks the bundled Janus available and notifies once per process. */
+  function reportBundledReady(): void {
+    if (bundledReported) return;
+    bundledReported = true;
+    restartAttempt = 0;
+    healthMonitor.setState("janus", HealthState.HEALTHY);
+    if (crashCallback) crashCallback();
+  }
+
   /** A hung Janus never exits, so `close` alone can't catch it. */
   function startBundledWatchdog(): void {
     const INTERVAL_MS = 10_000;
@@ -231,6 +243,11 @@ export function createJanusManager(): JanusManager {
       const reachable = proc ? await probeWs() : true;
       if (stopped || gen !== watchdogGeneration) return;
       missed = reachable ? 0 : missed + 1;
+      // A Janus that came up after start()/restart gave up waiting.
+      if (reachable && proc && !bundledReported) {
+        console.log("[janus] Bundled Janus answering late — now available");
+        reportBundledReady();
+      }
       if (missed >= MAX_MISSED_PROBES && proc) {
         console.warn(
           `[janus] No answer on ${wsUrl} for ${MAX_MISSED_PROBES} probes — killing Janus`
@@ -246,6 +263,7 @@ export function createJanusManager(): JanusManager {
 
   function spawnEmbedded(): void {
     if (proc) return;
+    bundledReported = false;
     const configDir = writeConfig();
     console.log(`[janus] Starting embedded with config dir: ${configDir}`);
 
@@ -277,12 +295,7 @@ export function createJanusManager(): JanusManager {
       setTimeout(async () => {
         if (stopped) return;
         spawnEmbedded();
-        const ready = await waitForReady();
-        if (ready) {
-          restartAttempt = 0;
-          healthMonitor.setState("janus", HealthState.HEALTHY);
-          if (crashCallback) crashCallback();
-        }
+        if (await waitForReady()) reportBundledReady();
       }, delay);
     });
 
@@ -323,6 +336,8 @@ export function createJanusManager(): JanusManager {
         spawnEmbedded();
         const ready = await waitForReady(10000);
         if (ready) {
+          // start() returning true is the report; no callback needed.
+          bundledReported = true;
           restartAttempt = 0;
           healthMonitor.setState("janus", HealthState.HEALTHY);
           console.log("[janus] Bundled Janus ready on", wsUrl);
@@ -369,6 +384,8 @@ export function createJanusManager(): JanusManager {
         spawnEmbedded();
         const ready = await waitForReady(10000);
         if (ready) {
+          // start() returning true is the report; no callback needed.
+          bundledReported = true;
           restartAttempt = 0;
           healthMonitor.setState("janus", HealthState.HEALTHY);
           console.log("[janus] Bundled Janus ready on", wsUrl);

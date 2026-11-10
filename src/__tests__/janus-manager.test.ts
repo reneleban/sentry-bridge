@@ -166,6 +166,61 @@ describe("Janus manager, bundled mode", () => {
     expect(proc.kill).toHaveBeenCalledTimes(1);
     manager.stop();
   });
+
+  it("does not report a Janus that start() already returned as ready", async () => {
+    const proc = makeProcess();
+    mockSpawn.mockReturnValue(proc);
+    const manager = createJanusManager();
+    const available = jest.fn();
+    manager.onCrash(available);
+    const started = manager.start();
+    await tick(0);
+    expect(await started).toBe(true);
+    await tick(60_000);
+    expect(available).not.toHaveBeenCalled();
+    manager.stop();
+  });
+
+  it("reports a restarted Janus once, even when the watchdog sees it first", async () => {
+    const first = makeProcess();
+    const second = makeProcess();
+    mockSpawn.mockReturnValueOnce(first).mockReturnValueOnce(second);
+    const manager = createJanusManager();
+    const available = jest.fn();
+    manager.onCrash(available);
+    const started = manager.start();
+    await tick(0);
+    expect(await started).toBe(true);
+
+    first.emit("close", 1);
+    await tick(60_000);
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+    expect(available).toHaveBeenCalledTimes(1);
+    manager.stop();
+  });
+
+  it("reports a Janus that answers only after start() gave up, once", async () => {
+    const proc = makeProcess();
+    mockSpawn.mockReturnValue(proc);
+    janusAnswers = false;
+    const manager = createJanusManager();
+    const available = jest.fn();
+    manager.onCrash(available);
+    const started = manager.start();
+    await tick(11_000);
+    expect(await started).toBe(false);
+    expect(available).not.toHaveBeenCalled();
+
+    janusAnswers = true;
+    await tick(10_000);
+    expect(available).toHaveBeenCalledTimes(1);
+    expect(healthMonitor.getHealth().janus).toBe(HealthState.HEALTHY);
+
+    await tick(60_000);
+    expect(available).toHaveBeenCalledTimes(1);
+    expect(proc.kill).not.toHaveBeenCalled();
+    manager.stop();
+  });
 });
 
 describe("Janus manager, hosted mode", () => {
