@@ -67,6 +67,7 @@ export function createCamera(config: CameraConfig): CameraModule {
   const MJPEG_WATCHDOG_MS = 10_000;
   // RTSP connect plus first decoded frame can take well over the frame gap.
   const MJPEG_FIRST_FRAME_MS = 30_000;
+  const MJPEG_OPEN_RETRY_MARGIN_MS = 1_000;
 
   let rtpStopped = false;
   let rtpRestartAttempt = 0;
@@ -216,10 +217,11 @@ export function createCamera(config: CameraConfig): CameraModule {
     ).catch(() => {
       // A failed connect already scheduled its restart in the `close` handler.
       if (spawned || mjpegStopped || gen !== mjpegGeneration) return;
-      // The breaker is OPEN and refused the spawn: retry once it lets a probe
-      // through. This timer is created after the breaker's own reset timer,
-      // so it fires after the breaker has gone HALF_OPEN.
-      const delay = cb.stats.timeUntilHalfOpenMs ?? 0;
+      // The breaker is OPEN and refused the spawn: retry once it should let a
+      // probe through. The margin keeps the retry clear of the breaker's own
+      // timing and bounds the retry rate if the breaker still refuses.
+      const delay =
+        (cb.stats.timeUntilHalfOpenMs ?? 0) + MJPEG_OPEN_RETRY_MARGIN_MS;
       mjpegRestartTimer = setTimeout(() => spawnMjpeg(), delay);
     });
   }
