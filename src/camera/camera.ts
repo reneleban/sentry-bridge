@@ -19,6 +19,33 @@ function redactRtspCredentials(text: string): string {
   return text.replace(RTSP_USERINFO, "$1***@");
 }
 
+/**
+ * Literal secrets of the configured RTSP URL (userinfo and password, raw and
+ * percent-decoded), longest first. The regex above cannot place the end of
+ * every password; these literals are replaced whatever their shape.
+ */
+function configuredSecrets(rtspUrl: string): string[] {
+  const m = /^rtsps?:\/\/(.*)@/i.exec(rtspUrl);
+  if (!m) return [];
+  const userinfo = m[1];
+  const colon = userinfo.indexOf(":");
+  const raw = colon === -1 ? [userinfo] : [userinfo, userinfo.slice(colon + 1)];
+  const all = raw.flatMap((v) => {
+    try {
+      return [v, decodeURIComponent(v)];
+    } catch {
+      return [v];
+    }
+  });
+  return [...new Set(all)]
+    .filter((v) => v !== "")
+    .sort((a, b) => b.length - a.length);
+}
+
+function redactSecrets(text: string, secrets: string[]): string {
+  return secrets.reduce((t, secret) => t.split(secret).join("***"), text);
+}
+
 /** Single exit point for ffmpeg output that reaches logs or error messages. */
 export function formatFfmpegLog(text: string): string {
   return redactRtspCredentials(text);
@@ -43,11 +70,13 @@ type StderrLineHandler = (line: string) => void;
  */
 function readStderrLines(
   child: ChildProcess,
-  onLine: StderrLineHandler
+  onLine: StderrLineHandler,
+  secrets: string[]
 ): () => void {
   let partial = "";
   const emit = (line: string) => {
-    if (line.trim() !== "") onLine(redactRtspCredentials(line));
+    if (line.trim() !== "")
+      onLine(redactRtspCredentials(redactSecrets(line, secrets)));
   };
   const flush = () => {
     emit(partial);
@@ -86,6 +115,7 @@ export function createCamera(config: CameraConfig): CameraModule {
   let rtpProc: ChildProcess | null = null;
   let frameCallback: ((frame: Buffer) => void) | null = null;
   const subscribers = new Map<symbol, FrameSubscriber>();
+  const secrets = configuredSecrets(config.rtspUrl);
 
   let mjpegStopped = false;
   let mjpegGeneration = 0;
@@ -136,7 +166,7 @@ export function createCamera(config: CameraConfig): CameraModule {
     onStderrLine: StderrLineHandler = () => {}
   ): ChildProcess & { flushStderr: () => void } {
     const child = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
-    const flushStderr = readStderrLines(child, onStderrLine);
+    const flushStderr = readStderrLines(child, onStderrLine, secrets);
     return Object.assign(child, { flushStderr });
   }
 

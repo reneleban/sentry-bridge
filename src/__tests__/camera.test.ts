@@ -656,6 +656,34 @@ describe("Camera", () => {
       );
     });
 
+    it.each([
+      ["p@x/y", "p@x/y"],
+      ["a quote", "pa'ss"],
+      ["percent-encoding", "p%40x%2Fy"],
+    ])(
+      "never logs the configured password (%s), whatever its shape",
+      async (_, pw) => {
+        const decoded = decodeURIComponent(pw);
+        mockSpawn.mockReturnValue(
+          makeMockProcess({
+            stderrData: [
+              `Opening rtsp://user:${decoded}@10.0.0.1/live; auth ${decoded} and ${pw} rejected\n`,
+            ],
+            exitCode: 1,
+          })
+        );
+        const err = (await createCamera({
+          ...config,
+          rtspUrl: `rtsp://user:${pw}@10.0.0.1/live`,
+        })
+          .testStream()
+          .catch((e: Error) => e)) as Error;
+        expect(err.message).toContain("10.0.0.1/live");
+        expect(err.message).not.toContain(pw);
+        expect(err.message).not.toContain(decoded);
+      }
+    );
+
     it("redacts two URLs on one line independently", () => {
       expect(
         formatFfmpegLog(
