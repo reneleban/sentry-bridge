@@ -191,6 +191,12 @@ These are intentional product decisions, not bugs:
 - Test: `docker exec <container> env | grep JANUS_HOST_IP`
 - Restart after change: `docker compose up -d --force-recreate`
 
+### 5. Obico live view stays black after a bridge restart
+
+- Symptom: after the bridge container restarts (the bundled Janus restarts with it), an Obico live view that was already open stays black
+- Reload the Obico page — the web client does not re-establish the WebRTC session on its own; this is how [Obico's web client](https://github.com/TheSpaghettiDetective/obico-server/blob/release/frontend/src/lib/webrtc.js) behaves with the official agents too
+- The dashboard MJPEG view is not affected
+
 ## Building from Source
 
 For local development or custom builds:

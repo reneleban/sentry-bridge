@@ -87,6 +87,16 @@ This guide covers errors with known solutions, drawn from v1.0 and v1.1.0 hardwa
 
 ---
 
+## 5. Obico live view stays black after a bridge restart
+
+**Symptom:** After the bridge container restarts (the bundled Janus restarts with it), an Obico live view that was already open stays black.
+
+**Cause:** Obico's web client does not re-establish the WebRTC session after the Janus server behind it restarts. This is how [Obico's web client](https://github.com/TheSpaghettiDetective/obico-server/blob/release/frontend/src/lib/webrtc.js) works with the official agents too; it is not a bridge fault.
+
+**Fix:** Reload the Obico page. The bridge dashboard's MJPEG view is not affected.
+
+---
+
 ## Not listed here?
 
 If your issue is not covered above, check the [container logs](#3-obico-pairing-never-confirms--wizard-step-3-waits-indefinitely) first, then open an issue at [github.com/reneleban/sentry-bridge](https://github.com/reneleban/sentry-bridge).
