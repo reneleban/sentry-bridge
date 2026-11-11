@@ -1,7 +1,4 @@
 import WebSocket from "ws";
-import * as nodeHttp from "node:http";
-import * as zlib from "node:zlib";
-import { BSON } from "bson";
 import { createReadStream, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as pathJoin, basename as pathBasename } from "node:path";
@@ -21,6 +18,13 @@ import { createCircuitBreaker } from "../lib/circuit-breaker";
 import { calculateDelay } from "../lib/retry";
 import { resilienceConfig } from "../lib/env-config";
 import { healthMonitor, circuitBreakerRegistry } from "../lib/health";
+import {
+  AgentMessage,
+  TunnelRequest,
+  decodeAgentFrame,
+  encodeTunnelResponse,
+  handleTunnelRequest,
+} from "./tunnel";
 import { HealthState, ErrorSeverity } from "../lib/health-monitor";
 
 export function createObicoAgent(
@@ -117,21 +121,14 @@ export function createObicoAgent(
     return serverUrl.replace(/\/$/, "") + path;
   }
 
-  // Obico sends JSON text frames, and BSON binary frames for messages with
-  // binary payloads (http.tunnelv2 requests, see obico-server consumers.py).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  function decodeAgentFrame(data: Buffer, isBinary: boolean): any {
-    if (isBinary) return BSON.deserialize(data, { promoteBuffers: true });
-    return JSON.parse(data.toString());
-  }
-
-  const loggedParseErrors = new Set<string>();
+  let loggedBsonError = false;
+  let loggedJsonError = false;
   function logParseErrorOnce(isBinary: boolean, err: unknown): void {
-    const kind = isBinary ? "BSON" : "JSON";
-    if (loggedParseErrors.has(kind)) return;
-    loggedParseErrors.add(kind);
+    if (isBinary ? loggedBsonError : loggedJsonError) return;
+    if (isBinary) loggedBsonError = true;
+    else loggedJsonError = true;
     console.warn(
-      `[obico] ignoring undecodable ${kind} frame (further ones are not logged):`,
+      `[obico] ignoring undecodable ${isBinary ? "BSON" : "JSON"} frame (further ones are not logged):`,
       (err as Error).message
     );
   }
@@ -161,8 +158,7 @@ export function createObicoAgent(
           });
 
           ws.on("message", (data, isBinary) => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            let msg: any;
+            let msg: AgentMessage;
             try {
               msg = decodeAgentFrame(data as Buffer, isBinary);
             } catch (err) {
@@ -175,8 +171,9 @@ export function createObicoAgent(
             // Obico also sends {"janus": null}; only string payloads are Janus JSON.
             if (typeof msg.janus === "string" && msg.janus)
               handleJanus(msg.janus);
-            if (msg["http.tunnelv2"]) {
-              handleHttpTunnel(msg["http.tunnelv2"]).catch((e) =>
+            const tunnel = msg["http.tunnelv2"];
+            if (tunnel) {
+              handleHttpTunnel(tunnel).catch((e) =>
                 console.error("[obico] handleHttpTunnel failed:", e)
               );
             }
@@ -308,150 +305,13 @@ export function createObicoAgent(
     }
   }
 
-  function doLocalRequest(
-    port: number,
-    method: string,
-    path: string,
-    headers: Record<string, string>,
-    body: Buffer | null,
-    timeoutMs: number
-  ): Promise<{
-    status: number;
-    body: Buffer;
-    respHeaders: Record<string, string>;
-  }> {
-    return new Promise((resolve, reject) => {
-      const req = nodeHttp.request(
-        { host: "127.0.0.1", port, path, method, headers, timeout: timeoutMs },
-        (res) => {
-          const chunks: Buffer[] = [];
-          res.on("data", (c) => chunks.push(Buffer.from(c)));
-          res.on("end", () => {
-            const respHeaders: Record<string, string> = {};
-            for (const [k, v] of Object.entries(res.headers)) {
-              if (typeof v === "string") respHeaders[k] = v;
-              else if (Array.isArray(v)) respHeaders[k] = v.join(", ");
-            }
-            resolve({
-              status: res.statusCode ?? 0,
-              body: Buffer.concat(chunks),
-              respHeaders,
-            });
-          });
-          res.on("error", reject);
-        }
-      );
-      req.on("timeout", () => {
-        req.destroy(new Error("timeout"));
-      });
-      req.on("error", reject);
-      if (body && body.length > 0) {
-        req.write(body);
-      }
-      req.end();
+  async function handleHttpTunnel(tunnel: TunnelRequest): Promise<void> {
+    const res = await handleTunnelRequest(tunnel, {
+      localPort: config.localPort ?? 3000,
+      bridgeUrl: config.bridgeUrl,
     });
-  }
-
-  function sendTunnelResponse(
-    ref: string,
-    status: number,
-    body: Buffer,
-    respHeaders: Record<string, string>
-  ): void {
-    const compressed = body.length >= 1000;
-    const finalContent = compressed ? zlib.deflateSync(body) : body;
-    const payload = {
-      "http.tunnelv2": {
-        ref,
-        response: {
-          status,
-          compressed,
-          content: finalContent,
-          cookies: [],
-          headers: respHeaders,
-        },
-      },
-    };
-    // Same shape as moonraker-obico tunnel.py send_http_to_local_v2: a BSON
-    // frame whose content holds raw (optionally zlib-compressed) bytes.
     if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(BSON.serialize(payload));
-    }
-  }
-
-  function bridgeBaseUrl(): string | null {
-    return config.streamUrl ? config.streamUrl.replace(/\/stream$/, "") : null;
-  }
-
-  function escapeHtml(s: string): string {
-    return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-  }
-
-  function lanOnlyPage(): Buffer {
-    const base = bridgeBaseUrl();
-    const link = base
-      ? `<p><a href="${escapeHtml(base)}/">Open SentryBridge on your LAN: ${escapeHtml(base)}/</a></p>`
-      : "<p>Open the bridge at its LAN address.</p>";
-    return Buffer.from(
-      `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>SentryBridge</title>` +
-        `<style>body{font-family:sans-serif;max-width:40em;margin:3em auto;padding:0 1em}</style></head>` +
-        `<body><h1>SentryBridge</h1>` +
-        `<p>The SentryBridge web UI is only available on the local network (LAN). ` +
-        `It is not exposed through the Obico tunnel.</p>${link}</body></html>`
-    );
-  }
-
-  const ALLOWED_TUNNEL_METHODS = ["GET", "POST", "DELETE"] as const;
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async function handleHttpTunnel(tunnel: any): Promise<void> {
-    const ref: string = tunnel.ref;
-    const method: string = (tunnel.method ?? "GET").toUpperCase();
-    const path: string = tunnel.path ?? "/";
-    const headers: Record<string, string> = tunnel.headers ?? {};
-    const timeoutMs = Math.min((tunnel.timeout ?? 10) * 1000, 10_000);
-
-    // EoP-Mitigation (T-13-03 / Phase 14): Whitelist GET, POST, DELETE
-    if (
-      !ALLOWED_TUNNEL_METHODS.includes(
-        method as (typeof ALLOWED_TUNNEL_METHODS)[number]
-      )
-    ) {
-      sendTunnelResponse(ref, 405, Buffer.from("method not allowed"), {});
-      return;
-    }
-    // ADR-0010: "/" gets a static page pointing to the LAN UI; nothing else of the UI
-    if (method === "GET" && path.split("?")[0] === "/") {
-      sendTunnelResponse(ref, 200, lanOnlyPage(), {
-        "Content-Type": "text/html; charset=utf-8",
-      });
-      return;
-    }
-    if (!path.startsWith("/api/")) {
-      sendTunnelResponse(ref, 403, Buffer.from("path not allowed"), {});
-      return;
-    }
-
-    // Obico sends the request body as raw bytes (BSON binary)
-    const body: Buffer | null =
-      Buffer.isBuffer(tunnel.data) && tunnel.data.length > 0
-        ? tunnel.data
-        : null;
-
-    const port = config.localPort ?? 3000;
-    try {
-      const {
-        status,
-        body: respBody,
-        respHeaders,
-      } = await doLocalRequest(port, method, path, headers, body, timeoutMs);
-      sendTunnelResponse(ref, status, respBody, respHeaders);
-    } catch (err) {
-      const isTimeout =
-        (err as NodeJS.ErrnoException)?.code === "ETIMEDOUT" ||
-        (err as Error).message === "timeout";
-      const code = isTimeout ? 504 : 502;
-      sendTunnelResponse(ref, code, Buffer.from(String(err)), {});
+      ws.send(encodeTunnelResponse(tunnel.ref, res));
     }
   }
 

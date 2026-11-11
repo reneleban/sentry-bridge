@@ -1099,29 +1099,25 @@ describe("http.tunnelv2 handler", () => {
   let wss: WebSocketServer;
   let wsPort: number;
 
-  // Track last recorded request for POST/DELETE tests
-  const lastRequest: { method?: string; url?: string; body?: string } = {};
+  // Last request the local server received, to check what the tunnel forwarded
+  const lastRequest: {
+    method?: string;
+    url?: string;
+    headers?: http.IncomingHttpHeaders;
+  } = {};
 
   beforeAll((done) => {
-    // Start a real local HTTP server to proxy to
     tunnelServer = http.createServer((req, res) => {
-      if (req.url === "/api/files") {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ files: [] }));
-        return;
-      }
-      if (req.url === "/api/big") {
+      lastRequest.method = req.method;
+      lastRequest.url = req.url;
+      lastRequest.headers = req.headers;
+      if (req.url === "/api/files?size=big") {
         res.writeHead(200, { "Content-Type": "text/plain" });
         res.end("X".repeat(2000));
         return;
       }
-      if (req.url === "/api/small") {
-        res.writeHead(200, { "Content-Type": "text/plain" });
-        res.end("tiny");
-        return;
-      }
-      if (req.url === "/api/slow") {
-        // Respond after 15s — will hit 10s timeout
+      if (req.url === "/api/files?size=slow") {
+        // Answers after 15 s, past the 10 s tunnel timeout
         setTimeout(() => {
           try {
             res.end("late");
@@ -1131,27 +1127,8 @@ describe("http.tunnelv2 handler", () => {
         }, 15000);
         return;
       }
-      if (req.url === "/api/files/upload" && req.method === "POST") {
-        let chunks = "";
-        req.on("data", (c: Buffer) => (chunks += c.toString()));
-        req.on("end", () => {
-          lastRequest.method = req.method;
-          lastRequest.url = req.url;
-          lastRequest.body = chunks;
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ ok: true }));
-        });
-        return;
-      }
-      if (req.url?.startsWith("/api/files/") && req.method === "DELETE") {
-        lastRequest.method = req.method;
-        lastRequest.url = req.url;
-        res.writeHead(204);
-        res.end();
-        return;
-      }
-      res.writeHead(404);
-      res.end("not found");
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ files: [] }));
     });
     tunnelServer.listen(0, "127.0.0.1", () => {
       tunnelPort = (tunnelServer.address() as { port: number }).port;
@@ -1168,19 +1145,23 @@ describe("http.tunnelv2 handler", () => {
     wss = new WebSocketServer({ port: wsPort });
     wss.on("listening", done);
     jest.clearAllMocks();
+    lastRequest.method = undefined;
+    lastRequest.url = undefined;
+    lastRequest.headers = undefined;
   });
 
   afterEach((done) => {
     wss.close(done);
   });
 
-  function makeAgent() {
+  function makeAgent(localPort = tunnelPort) {
     return createObicoAgent(
       {
         serverUrl: `http://localhost:${wsPort}`,
         apiKey: "key",
-        localPort: tunnelPort,
+        localPort,
         streamUrl: "http://192.168.1.50:3000/stream",
+        bridgeUrl: "http://192.168.1.50:3000",
       },
       mockHttp,
       mockDispatcher
@@ -1213,413 +1194,146 @@ describe("http.tunnelv2 handler", () => {
     });
   }
 
-  // Test 1: GET /api/files → proxied → response sent back
-  it("INFRA-02 T1: proxies GET /api/files and sends http.tunnelv2 response", (done) => {
-    let serverSocket: WebSocket;
-    wss.on("connection", (ws) => {
-      serverSocket = ws;
-    });
-
-    const agent = makeAgent();
-    agent.connect();
-
-    setTimeout(() => {
-      serverSocket.send(
-        BSON.serialize({
-          "http.tunnelv2": {
-            ref: "T1",
-            method: "GET",
-            path: "/api/files",
-            headers: {},
-            timeout: 10,
-          },
-        })
-      );
-
-      waitForTunnelResponse(serverSocket, "T1")
-        .then((tunnel) => {
-          expect(tunnel.ref).toBe("T1");
-          expect(tunnel.response.status).toBe(200);
-          expect(Buffer.isBuffer(tunnel.response.content)).toBe(true);
-          expect(typeof tunnel.response.compressed).toBe("boolean");
-          expect(Array.isArray(tunnel.response.cookies)).toBe(true);
-          agent.disconnect();
-          done();
-        })
-        .catch((err) => {
-          agent.disconnect();
-          done(err);
-        });
-    }, 50);
-  });
-
-  // Test 2: Body >= 1000 bytes → compressed=true, content = base64(zlib.deflate)
-  it("INFRA-02 T2: compresses body >= 1000 bytes (compressed=true)", (done) => {
-    let serverSocket: WebSocket;
-    wss.on("connection", (ws) => {
-      serverSocket = ws;
-    });
-
-    const agent = makeAgent();
-    agent.connect();
-
-    setTimeout(() => {
-      serverSocket.send(
-        BSON.serialize({
-          "http.tunnelv2": {
-            ref: "T2",
-            method: "GET",
-            path: "/api/big",
-            headers: {},
-            timeout: 10,
-          },
-        })
-      );
-
-      waitForTunnelResponse(serverSocket, "T2")
-        .then((tunnel) => {
-          expect(tunnel.response.compressed).toBe(true);
-          // Round-trip: raw zlib bytes → zlib.inflateSync → "X".repeat(2000)
-          const inflated = zlib.inflateSync(tunnel.response.content).toString();
-          expect(inflated).toBe("X".repeat(2000));
-          agent.disconnect();
-          done();
-        })
-        .catch((err) => {
-          agent.disconnect();
-          done(err);
-        });
-    }, 50);
-  });
-
-  // Test 3: Body < 1000 bytes → compressed=false
-  it("INFRA-02 T3: does not compress body < 1000 bytes (compressed=false)", (done) => {
-    let serverSocket: WebSocket;
-    wss.on("connection", (ws) => {
-      serverSocket = ws;
-    });
-
-    const agent = makeAgent();
-    agent.connect();
-
-    setTimeout(() => {
-      serverSocket.send(
-        BSON.serialize({
-          "http.tunnelv2": {
-            ref: "T3",
-            method: "GET",
-            path: "/api/small",
-            headers: {},
-            timeout: 10,
-          },
-        })
-      );
-
-      waitForTunnelResponse(serverSocket, "T3")
-        .then((tunnel) => {
-          expect(tunnel.response.compressed).toBe(false);
-          const decoded = tunnel.response.content.toString();
-          expect(decoded).toBe("tiny");
-          agent.disconnect();
-          done();
-        })
-        .catch((err) => {
-          agent.disconnect();
-          done(err);
-        });
-    }, 50);
-  });
-
-  // Test 4: method not in ALLOWED_METHODS → 405, no HTTP call made
-  it("INFRA-02 T4: rejects PUT method with 405 (not in ALLOWED_METHODS)", (done) => {
-    let serverSocket: WebSocket;
-    wss.on("connection", (ws) => {
-      serverSocket = ws;
-    });
-
-    const agent = makeAgent();
-    agent.connect();
-
-    setTimeout(() => {
-      serverSocket.send(
-        BSON.serialize({
-          "http.tunnelv2": {
-            ref: "T4",
-            method: "PUT",
-            path: "/api/files",
-            headers: {},
-            timeout: 10,
-          },
-        })
-      );
-
-      waitForTunnelResponse(serverSocket, "T4")
-        .then((tunnel) => {
-          expect(tunnel.response.status).toBe(405);
-          agent.disconnect();
-          done();
-        })
-        .catch((err) => {
-          agent.disconnect();
-          done(err);
-        });
-    }, 50);
-  });
-
-  // Test 5: path not starting with /api/ → 403, no HTTP call
-  it("INFRA-02 T5: rejects path outside /api/ with 403", (done) => {
-    let serverSocket: WebSocket;
-    wss.on("connection", (ws) => {
-      serverSocket = ws;
-    });
-
-    const agent = makeAgent();
-    agent.connect();
-
-    setTimeout(() => {
-      serverSocket.send(
-        BSON.serialize({
-          "http.tunnelv2": {
-            ref: "T5",
-            method: "GET",
-            path: "/etc/passwd",
-            headers: {},
-            timeout: 10,
-          },
-        })
-      );
-
-      waitForTunnelResponse(serverSocket, "T5")
-        .then((tunnel) => {
-          expect(tunnel.response.status).toBe(403);
-          agent.disconnect();
-          done();
-        })
-        .catch((err) => {
-          agent.disconnect();
-          done(err);
-        });
-    }, 50);
-  });
-
-  // Test 6: timeout — slow endpoint → 504 within ~10s
-  it("INFRA-02 T6: returns 504 when local HTTP request times out", (done) => {
-    let serverSocket: WebSocket;
-    wss.on("connection", (ws) => {
-      serverSocket = ws;
-    });
-
-    const agent = makeAgent();
-    agent.connect();
-
-    setTimeout(() => {
-      serverSocket.send(
-        BSON.serialize({
-          "http.tunnelv2": {
-            ref: "T6",
-            method: "GET",
-            path: "/api/slow",
-            headers: {},
-            timeout: 10,
-          },
-        })
-      );
-
-      waitForTunnelResponse(serverSocket, "T6", 12000)
-        .then((tunnel) => {
-          expect(tunnel.response.status).toBe(504);
-          agent.disconnect();
-          done();
-        })
-        .catch((err) => {
-          agent.disconnect();
-          done(err);
-        });
-    }, 50);
-  }, 15000);
-
-  // Test 7: unreachable port → 502
-  it("INFRA-02 T7: returns 502 when local HTTP server is unreachable", (done) => {
-    let serverSocket: WebSocket;
-    wss.on("connection", (ws) => {
-      serverSocket = ws;
-    });
-
-    // Create agent with a port nobody is listening on
-    const badAgent = createObicoAgent(
-      {
-        serverUrl: `http://localhost:${wsPort}`,
-        apiKey: "key",
-        localPort: 19999, // nothing listening here
-      },
-      mockHttp,
-      mockDispatcher
-    );
-    badAgent.connect();
-
-    setTimeout(() => {
-      serverSocket.send(
-        BSON.serialize({
-          "http.tunnelv2": {
-            ref: "T7",
-            method: "GET",
-            path: "/api/files",
-            headers: {},
-            timeout: 5,
-          },
-        })
-      );
-
-      waitForTunnelResponse(serverSocket, "T7")
-        .then((tunnel) => {
-          expect(tunnel.response.status).toBe(502);
-          badAgent.disconnect();
-          done();
-        })
-        .catch((err) => {
-          badAgent.disconnect();
-          done(err);
-        });
-    }, 50);
-  });
-
-  // Test 8: POST via tunnel with raw body → body forwarded (FILES-02 over Obico tunnel)
-  it("INFRA-02 T8: forwards POST via tunnel with raw body (FILES-02 over Obico tunnel)", (done) => {
-    let serverSocket: WebSocket;
-    wss.on("connection", (ws) => {
-      serverSocket = ws;
-    });
-
-    const agent = makeAgent();
-    agent.connect();
-
-    lastRequest.method = undefined;
-    lastRequest.body = undefined;
-
-    setTimeout(() => {
-      serverSocket.send(
-        BSON.serialize({
-          "http.tunnelv2": {
-            ref: "T8",
-            method: "POST",
-            path: "/api/files/upload",
-            headers: { "content-type": "application/octet-stream" },
-            data: Buffer.from("hello"),
-            timeout: 10,
-          },
-        })
-      );
-
-      waitForTunnelResponse(serverSocket, "T8")
-        .then((tunnel) => {
-          expect(tunnel.response.status).toBe(200);
-          expect(lastRequest.method).toBe("POST");
-          expect(lastRequest.body).toBe("hello");
-          agent.disconnect();
-          done();
-        })
-        .catch((err) => {
-          agent.disconnect();
-          done(err);
-        });
-    }, 50);
-  });
-
-  // Test 9: DELETE via tunnel → forwarded (FILES-04 over Obico tunnel)
-  it("INFRA-02 T9: forwards DELETE via tunnel (FILES-04 over Obico tunnel)", (done) => {
-    let serverSocket: WebSocket;
-    wss.on("connection", (ws) => {
-      serverSocket = ws;
-    });
-
-    const agent = makeAgent();
-    agent.connect();
-
-    lastRequest.method = undefined;
-    lastRequest.url = undefined;
-
-    setTimeout(() => {
-      serverSocket.send(
-        BSON.serialize({
-          "http.tunnelv2": {
-            ref: "T9",
-            method: "DELETE",
-            path: "/api/files/test.gcode",
-            headers: {},
-            timeout: 10,
-          },
-        })
-      );
-
-      waitForTunnelResponse(serverSocket, "T9")
-        .then((tunnel) => {
-          expect(tunnel.response.status).toBe(204);
-          expect(lastRequest.method).toBe("DELETE");
-          expect(lastRequest.url).toBe("/api/files/test.gcode");
-          agent.disconnect();
-          done();
-        })
-        .catch((err) => {
-          agent.disconnect();
-          done(err);
-        });
-    }, 50);
-  });
-
-  // Test 10: PUT via tunnel → 405 (PUT via tunnel is not in ALLOWED_METHODS)
-  it("INFRA-02 T10: rejects PUT via tunnel with 405", (done) => {
-    let serverSocket: WebSocket;
-    wss.on("connection", (ws) => {
-      serverSocket = ws;
-    });
-
-    const agent = makeAgent();
-    agent.connect();
-
-    setTimeout(() => {
-      serverSocket.send(
-        BSON.serialize({
-          "http.tunnelv2": {
-            ref: "T10",
-            method: "PUT",
-            path: "/api/files/test.gcode",
-            headers: {},
-            timeout: 10,
-          },
-        })
-      );
-
-      waitForTunnelResponse(serverSocket, "T10")
-        .then((tunnel) => {
-          expect(tunnel.response.status).toBe(405);
-          agent.disconnect();
-          done();
-        })
-        .catch((err) => {
-          agent.disconnect();
-          done(err);
-        });
-    }, 50);
-  });
-
-  function tunnelRoundTrip(request: object, ref: string): Promise<any> {
+  function tunnelRoundTrip(
+    request: object,
+    ref: string,
+    localPort = tunnelPort
+  ): Promise<any> {
     return new Promise((resolve, reject) => {
-      const agent = makeAgent();
+      const agent = makeAgent(localPort);
       wss.on("connection", (serverSocket) => {
         waitForTunnelResponse(serverSocket, ref)
           .then(resolve, reject)
           .finally(() => agent.disconnect());
         serverSocket.send(
-          BSON.serialize({ "http.tunnelv2": { ref, ...request } })
+          BSON.serialize({ "http.tunnelv2": { ref, headers: {}, ...request } })
         );
       });
       agent.connect();
     });
   }
 
+  it("INFRA-02 T1: proxies GET /api/files and sends http.tunnelv2 response", async () => {
+    const tunnel = await tunnelRoundTrip(
+      { method: "GET", path: "/api/files", timeout: 10 },
+      "T1"
+    );
+    expect(tunnel.ref).toBe("T1");
+    expect(tunnel.response.status).toBe(200);
+    expect(Buffer.isBuffer(tunnel.response.content)).toBe(true);
+    expect(tunnel.response.compressed).toBe(false);
+    expect(Array.isArray(tunnel.response.cookies)).toBe(true);
+    expect(JSON.parse(tunnel.response.content.toString())).toEqual({
+      files: [],
+    });
+  });
+
+  it("INFRA-02 T2: compresses body >= 1000 bytes (compressed=true)", async () => {
+    const tunnel = await tunnelRoundTrip(
+      { method: "get", path: "/api/files?size=big" },
+      "T2"
+    );
+    expect(tunnel.response.compressed).toBe(true);
+    expect(zlib.inflateSync(tunnel.response.content).toString()).toBe(
+      "X".repeat(2000)
+    );
+  });
+
+  it("INFRA-02 T3: forwards the query string unchanged", async () => {
+    await tunnelRoundTrip(
+      { method: "get", path: "/api/files?a=1&b=%2F" },
+      "T3"
+    );
+    expect(lastRequest.url).toBe("/api/files?a=1&b=%2F");
+  });
+
+  it("INFRA-02 T4: rejects PUT method with 405", async () => {
+    const tunnel = await tunnelRoundTrip(
+      { method: "PUT", path: "/api/files" },
+      "T4"
+    );
+    expect(tunnel.response.status).toBe(405);
+    expect(lastRequest.method).toBeUndefined();
+  });
+
+  it("INFRA-02 T5: rejects path outside /api/ with 403", async () => {
+    const tunnel = await tunnelRoundTrip(
+      { method: "GET", path: "/etc/passwd" },
+      "T5"
+    );
+    expect(tunnel.response.status).toBe(403);
+  });
+
+  it("INFRA-02 T6: returns 504 when local HTTP request times out", async () => {
+    const tunnel = await tunnelRoundTrip(
+      { method: "GET", path: "/api/files?size=slow", timeout: 10 },
+      "T6"
+    );
+    expect(tunnel.response.status).toBe(504);
+  }, 15000);
+
+  it("INFRA-02 T7: returns 502 when local HTTP server is unreachable", async () => {
+    const tunnel = await tunnelRoundTrip(
+      { method: "GET", path: "/api/files", timeout: 5 },
+      "T7",
+      19999 // nothing listening here
+    );
+    expect(tunnel.response.status).toBe(502);
+  });
+
+  it("INFRA-02 T8: asks the local server for an uncompressed response", async () => {
+    await tunnelRoundTrip(
+      {
+        method: "GET",
+        path: "/api/files",
+        headers: { "Accept-Encoding": "gzip, br" },
+      },
+      "T8"
+    );
+    expect(lastRequest.headers?.["accept-encoding"]).toBe("identity");
+  });
+
+  it.each([
+    ["POST", "/api/setup/save"],
+    ["POST", "/api/wizard/test-prusalink"],
+    ["GET", "/api/wizard/configured"],
+    ["POST", "/api/bridge/reconnect"],
+    ["POST", "/api/control"],
+    ["GET", "/api/config"],
+    ["POST", "/api/files/upload"],
+    ["POST", "/api/files/a.gcode/print"],
+    ["DELETE", "/api/files/a.gcode"],
+    ["POST", "/api/files"],
+    ["GET", "/api/files/"],
+    ["GET", "/API/files"],
+    ["GET", "/api/../index.html"],
+    ["GET", "/api/./files"],
+    ["GET", "/api/%2e%2e/setup/save"],
+    ["GET", "/api/%2E%2E/x"],
+    ["GET", "/api%2ffiles"],
+    ["GET", "/api%2Ffiles"],
+    ["GET", "/api/files%00"],
+    ["GET", "/api\\files"],
+    ["GET", "//api/files"],
+    ["GET", "/api//files"],
+    ["GET", "api/files"],
+  ])("INFRA-02 T9: rejects %s %s with 403", async (method, path) => {
+    const tunnel = await tunnelRoundTrip({ method, path }, "T9");
+    expect(tunnel.response.status).toBe(403);
+    expect(lastRequest.url).toBeUndefined();
+  });
+
+  it("INFRA-02 T10: rejects PUT via tunnel with 405 even on an allowed path", async () => {
+    const tunnel = await tunnelRoundTrip(
+      { method: "put", path: "/api/files", data: Buffer.from("x") },
+      "T10"
+    );
+    expect(tunnel.response.status).toBe(405);
+  });
+
   it("answers GET / with a LAN-only HTML page linking to the bridge", async () => {
     const tunnel = await tunnelRoundTrip(
-      { method: "get", path: "/?x=1", headers: {}, data: Buffer.alloc(0) },
+      { method: "get", path: "/?x=1", data: Buffer.alloc(0) },
       "ROOT"
     );
     expect(tunnel.response.status).toBe(200);
@@ -1635,7 +1349,7 @@ describe("http.tunnelv2 handler", () => {
 
   it("rejects other UI paths such as /assets/ with 403", async () => {
     const tunnel = await tunnelRoundTrip(
-      { method: "get", path: "/assets/index.js", headers: {} },
+      { method: "get", path: "/assets/index.js" },
       "ASSET"
     );
     expect(tunnel.response.status).toBe(403);
@@ -1643,7 +1357,7 @@ describe("http.tunnelv2 handler", () => {
 
   it("rejects POST / with 403", async () => {
     const tunnel = await tunnelRoundTrip(
-      { method: "post", path: "/", headers: {} },
+      { method: "post", path: "/" },
       "ROOTPOST"
     );
     expect(tunnel.response.status).toBe(403);
