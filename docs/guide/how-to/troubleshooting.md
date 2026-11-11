@@ -30,7 +30,7 @@ This guide covers errors with known solutions, drawn from v1.0 and v1.1.0 hardwa
 
 **Fix:**
 
-1. **Check the camera protocol:** On the printer touchscreen, go to `Settings → Network → Camera` and confirm it shows **RTSP**. If it shows WebRTC, switch to RTSP and save.
+1. **Check the streaming mode:** In Prusa Connect, open the camera settings and set **Streaming** to **RTSP** (options: Disable / RTSP / WebRTC). Re-check this after every firmware update — newer firmware may switch it back to WebRTC.
 2. **Test the RTSP stream directly** from the Docker host:
    ```bash
    ffmpeg -rtsp_transport tcp -i rtsp://<printer-ip>/live -frames:v 1 -f image2 /tmp/test.jpg
