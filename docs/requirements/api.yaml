@@ -113,7 +113,9 @@ paths:
       description: >-
         Writes config.json and triggers bridge hot-reload. Requires all required fields,
         except that an empty or missing `prusalink.password` / `obico.apiKey` keeps the
-        stored value (400 if none is stored).
+        stored value (400 if none is stored). The stored password is only kept if
+        `prusalink.url` and `prusalink.username` are unchanged, the stored API key only if
+        `obico.serverUrl` is unchanged; otherwise 400 (password or new pairing required).
       operationId: saveConfig
       requestBody:
         required: true
@@ -289,7 +291,8 @@ paths:
       summary: Test PrusaLink connection
       description: >-
         Attempts to connect to a PrusaLink instance with the given credentials. Used in
-        wizard step 1. An empty or missing password uses the stored one (400 if none is stored).
+        wizard step 1. An empty or missing password uses the stored one, but only if url and
+        username equal the stored ones; otherwise (or if none is stored) 400.
       operationId: testPrusaLink
       requestBody:
         required: true
@@ -380,7 +383,11 @@ paths:
     post:
       tags: [wizard]
       summary: Verify Obico pairing code
-      description: Verifies the 5-character pairing code with the Obico server and returns the API key. Used in wizard step 3.
+      description: >-
+        Verifies the 5-character pairing code with the Obico server and saves the setup
+        with the new API key. The key is never returned. The setup fields follow the same
+        keep-on-empty rule as POST /api/setup/save and are validated before pairing.
+        Used in wizard step 3.
       operationId: verifyPairing
       requestBody:
         required: true
@@ -388,8 +395,16 @@ paths:
           application/json:
             schema:
               type: object
-              required: [obicoServerUrl, code]
+              required: [obicoServerUrl, code, prusalink, camera]
               properties:
+                name:
+                  type: string
+                prusalink:
+                  $ref: "#/components/schemas/Config/properties/prusalink"
+                camera:
+                  $ref: "#/components/schemas/Config/properties/camera"
+                polling:
+                  $ref: "#/components/schemas/Config/properties/polling"
                 obicoServerUrl:
                   type: string
                   example: https://app.obico.io
@@ -398,19 +413,18 @@ paths:
                   example: AB12C
       responses:
         "200":
-          description: Pairing successful
+          description: Pairing successful, config saved
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  apiKey:
-                    type: string
-                    description: 20-character hex auth token
+                  ok:
+                    type: boolean
                   serverUrl:
                     type: string
         "400":
-          description: Missing required fields
+          description: Missing required fields, or stored password not applicable
           content:
             application/json:
               schema:
@@ -602,37 +616,29 @@ components:
           example: Connection failed
 
     PublicConfig:
-      type: object
       description: >-
-        Config as returned by GET /api/config. Same fields as Config, except
-        prusalink.password and obico.apiKey are replaced by hints.
-      properties:
-        name:
-          type: string
-        prusalink:
-          type: object
+        Config as returned by GET /api/config: Config without prusalink.password and
+        obico.apiKey, which are replaced by hints.
+      allOf:
+        - $ref: "#/components/schemas/Config"
+        - type: object
           properties:
-            url:
-              type: string
-            username:
-              type: string
-            passwordHint:
-              type: string
-              example: "***ord"
-        camera:
-          type: object
-        obico:
-          type: object
-          properties:
-            serverUrl:
-              type: string
-            apiKeyHint:
-              type: string
-              example: "***0f1"
-        polling:
-          type: object
-        bridgeUrl:
-          type: string
+            prusalink:
+              type: object
+              properties:
+                password:
+                  not: {}
+                passwordHint:
+                  type: string
+                  example: "***ord"
+            obico:
+              type: object
+              properties:
+                apiKey:
+                  not: {}
+                apiKeyHint:
+                  type: string
+                  example: "***0f1"
     Config:
       type: object
       required: [prusalink, camera, obico]
