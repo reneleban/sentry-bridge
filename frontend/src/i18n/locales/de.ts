@@ -165,6 +165,8 @@ export default {
   bootChecks: {
     title: "Startprüfung hat ein Problem gefunden",
     recheck: "Erneut prüfen",
+    running: "Startprüfung läuft…",
+    allPassed: "Alle Startprüfungen bestanden",
     checks: {
       prusalink_reachable: "PrusaLink erreichbar",
       prusalink_auth: "PrusaLink-Zugangsdaten",

@@ -164,6 +164,8 @@ export default {
   bootChecks: {
     title: "Startup checks found a problem",
     recheck: "Re-check",
+    running: "Running startup checks…",
+    allPassed: "All startup checks passed",
     checks: {
       prusalink_reachable: "PrusaLink reachable",
       prusalink_auth: "PrusaLink credentials",
