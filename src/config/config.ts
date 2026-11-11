@@ -58,7 +58,15 @@ export function saveConfig(config: Config): void {
     encoding: "utf-8",
     mode: 0o600,
   });
-  fs.chmodSync(filePath, 0o600);
+  try {
+    fs.chmodSync(filePath, 0o600);
+  } catch (err) {
+    // Some volumes (SMB/CIFS, NAS) do not support chmod; the save itself worked.
+    const code = (err as NodeJS.ErrnoException).code ?? "unknown";
+    console.warn(
+      `[config] Could not restrict config file mode to 0600 (${code})`
+    );
+  }
   configEmitter.emit("config-changed", config);
 }
 

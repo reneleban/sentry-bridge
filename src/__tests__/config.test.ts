@@ -1,4 +1,9 @@
 import * as fs from "fs";
+
+jest.mock("fs", () => {
+  const actual = jest.requireActual("fs");
+  return { ...actual, chmodSync: jest.fn(actual.chmodSync) };
+});
 import * as path from "path";
 import * as os from "os";
 import {
@@ -155,6 +160,33 @@ describe("saveConfig() file mode", () => {
       saveConfig(validConfig as Config);
       expect(modeOf(filePath)).toBe(0o600);
     } finally {
+      fs.rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("still saves and emits config-changed when chmod fails", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "obico-mode-"));
+    const filePath = path.join(dir, "config.json");
+    process.env.CONFIG_PATH = filePath;
+    const chmod = fs.chmodSync as jest.Mock;
+    chmod.mockImplementationOnce(() => {
+      throw Object.assign(new Error("denied"), { code: "EPERM" });
+    });
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    const received: Config[] = [];
+    const handler = (cfg: Config) => received.push(cfg);
+    configEmitter.on("config-changed", handler);
+    try {
+      expect(() => saveConfig(validConfig as Config)).not.toThrow();
+      expect(received).toHaveLength(1);
+      expect(JSON.parse(fs.readFileSync(filePath, "utf-8")).obico.apiKey).toBe(
+        "abc123"
+      );
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).toContain("EPERM");
+    } finally {
+      configEmitter.off("config-changed", handler);
+      warn.mockRestore();
       fs.rmSync(dir, { recursive: true });
     }
   });
