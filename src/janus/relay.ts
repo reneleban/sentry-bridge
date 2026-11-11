@@ -56,7 +56,6 @@ export function createJanusRelay(
   function closeSocket(ws: WebSocket | null): void {
     if (!ws) return;
     if (ws.readyState === WebSocket.CONNECTING) {
-      ws.on("error", () => {});
       ws.terminate();
     } else {
       ws.close();
@@ -112,6 +111,8 @@ export function createJanusRelay(
     janus.on("close", () => {
       if (!isCurrent(gen)) return;
       console.log("[janus-relay] Janus WS closed");
+      // Retire this pair first so errors from sockets we tear down stay silent.
+      generation++;
       closeSockets();
       scheduleReconnect(
         obicoLost ? "Obico WS connection lost" : "Janus WS connection lost"
