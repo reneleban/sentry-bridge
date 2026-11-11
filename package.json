@@ -32,10 +32,10 @@
     "@types/ws": "^8.18.2",
     "bson": "^7.3.4",
     "digest-fetch": "^3.1.1",
-    "dotenv": "^18.0.9",
+    "dotenv": "^18.0.10",
     "express": "^5.3.0",
     "multer": "^2.3.0",
-    "ws": "^8.22.1"
+    "ws": "^8.22.2"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
@@ -49,8 +49,8 @@
     "jest-html-reporter": "^4.4.0",
     "jest-junit": "^17.0.0",
     "lint-staged": "^17.4.1",
-    "nodemon": "^3.1.4",
-    "prettier": "^3.9.6",
+    "nodemon": "^3.1.14",
+    "prettier": "^3.10.0",
     "supertest": "^7.3.2",
     "ts-jest": "^29.1.5",
     "ts-node": "^10.9.2",
