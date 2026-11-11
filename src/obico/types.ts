@@ -115,6 +115,12 @@ export interface ObicoAgent {
   setJanusUrl(url: string): void;
 }
 
+// READY = idle with a print prepared ("ready to print"), not printing.
+// STOPPED = a print was cancelled; the printer is idle again.
+export function isIdleState(state: string): boolean {
+  return state === "IDLE" || state === "READY" || state === "STOPPED";
+}
+
 export function buildStatusMessage(
   status: PrinterStatus,
   job: JobInfo | null,
@@ -128,7 +134,6 @@ export function buildStatusMessage(
   // FINISHING is dead with current Buddy firmware (reported as PRINTING); kept for safety.
   const isFinishing = status.state === "FINISHING";
   const isError = status.state === "ERROR";
-  // READY = idle with a print prepared ("ready to print"), not printing.
   const isReady = status.state === "IDLE" || status.state === "READY";
 
   const webcamEntry = streamUrl

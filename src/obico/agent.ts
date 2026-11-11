@@ -8,6 +8,7 @@ import {
   HttpFetcher,
   PrusaLinkCommandDispatcher,
   buildStatusMessage,
+  isIdleState,
 } from "./types";
 import { PrinterStatus, JobInfo } from "../prusalink/types";
 import {
@@ -512,21 +513,13 @@ export function createObicoAgent(
       // on subsequent ticks and Obico's UI flickers between "has file" and
       // "no file" → inconsistent display.
       const shouldResetAfterSend =
-        (status.state === "IDLE" ||
-          status.state === "READY" ||
-          status.state === "STOPPED") &&
-        (wasActiveState || wasFinishingState);
+        isIdleState(status.state) && (wasActiveState || wasFinishingState);
 
       // During FINISHING or FINISHED, use cached job if no fresh job available
       const effectiveJob = job ?? (isFinishingOrFinished ? cachedJob : null);
 
       // Reset fileId only on true idle/stopped — not FINISHED/FINISHING (preserve for the finishing status message)
-      if (
-        (status.state === "IDLE" ||
-          status.state === "READY" ||
-          status.state === "STOPPED") &&
-        activePrintFileId !== null
-      ) {
+      if (isIdleState(status.state) && activePrintFileId !== null) {
         activePrintFileId = null;
       }
 
