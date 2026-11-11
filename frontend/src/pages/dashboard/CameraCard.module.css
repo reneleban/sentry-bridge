@@ -29,7 +29,7 @@
 /* Re-mounted per frame (React key), so it pulses on each new frame. */
 .dotLive {
   background-color: var(--mantine-color-green-5);
-  animation: pulse 600ms ease-out;
+  animation: pulse 400ms ease-out;
 }
 
 .dotLate {
@@ -38,10 +38,12 @@
 
 @keyframes pulse {
   0% {
-    transform: scale(1.5);
+    transform: scale(1.2);
+    opacity: 0.7;
   }
   100% {
     transform: scale(1);
+    opacity: 1;
   }
 }
 

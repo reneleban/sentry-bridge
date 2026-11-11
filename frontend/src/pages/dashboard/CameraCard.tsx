@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   Box,
   Card,
@@ -9,27 +15,33 @@ import {
   Tooltip,
 } from "@mantine/core";
 import { useTranslation } from "react-i18next";
-import { useHealth } from "../../hooks/useHealth";
 import { createMjpegParser } from "./mjpeg";
 import classes from "./CameraCard.module.css";
 
 // Retry delay after the stream failed.
 const ERROR_RETRY_MS = 15_000;
-// Reconnect when no frame arrived for this long, but give slow cameras at
-// least two frame intervals.
-const MIN_STALL_TIMEOUT_MS = 30_000;
+// Badge turns to "late" after this long without a frame.
+const MIN_LATE_MS = 5_000;
+// Reconnect when no frame arrived for this long.
+const MIN_STALL_MS = 30_000;
 // Window over which the frame rate is averaged.
-const FPS_WINDOW_MS = 5_000;
+const MIN_FPS_WINDOW_MS = 5_000;
 // How often the badge and the stall check are re-evaluated.
 const TICK_MS = 1_000;
 
-function stallTimeoutMs(frameIntervalSeconds: number | null): number {
-  return Math.max(MIN_STALL_TIMEOUT_MS, 2 * (frameIntervalSeconds ?? 0) * 1000);
+/** Timing thresholds, stretched for slow cameras so a regular gap between
+ *  two frames never counts as late or stalled. */
+function streamThresholds(frameIntervalSeconds: number | null) {
+  const intervalMs = (frameIntervalSeconds ?? 0) * 1000;
+  return {
+    lateMs: Math.max(MIN_LATE_MS, 2 * intervalMs),
+    stallMs: Math.max(MIN_STALL_MS, 2 * intervalMs),
+    fpsWindowMs: Math.max(MIN_FPS_WINDOW_MS, 3 * intervalMs),
+  };
 }
 
 export function CameraCard() {
   const { t } = useTranslation();
-  const { health } = useHealth();
   const [error, setError] = useState(false);
   // Changing it opens a new /stream request.
   const [attempt, setAttempt] = useState(0);
@@ -41,6 +53,12 @@ export function CameraCard() {
   // Arrival times of recent frames, and the start of the current connection.
   const frameTimes = useRef<number[]>([]);
   const connectedAt = useRef(Date.now());
+  // Object URL created for a frame but not yet displayed.
+  const pendingUrl = useRef<string | null>(null);
+  const { lateMs, stallMs, fpsWindowMs } =
+    streamThresholds(frameIntervalSeconds);
+  const fpsWindow = useRef(fpsWindowMs);
+  fpsWindow.current = fpsWindowMs;
 
   const reconnect = useCallback(() => {
     setError(false);
@@ -61,7 +79,6 @@ export function CameraCard() {
   useEffect(() => {
     if (error) return;
     const controller = new AbortController();
-    let url: string | null = null;
     connectedAt.current = Date.now();
     frameTimes.current = [];
 
@@ -69,11 +86,12 @@ export function CameraCard() {
       const next = URL.createObjectURL(
         new Blob([jpeg as BlobPart], { type: "image/jpeg" })
       );
-      if (url) URL.revokeObjectURL(url);
-      url = next;
+      // A frame replaced before it was ever rendered is never displayed.
+      if (pendingUrl.current) URL.revokeObjectURL(pendingUrl.current);
+      pendingUrl.current = next;
       const ts = Date.now();
       frameTimes.current = [
-        ...frameTimes.current.filter((x) => ts - x <= FPS_WINDOW_MS),
+        ...frameTimes.current.filter((x) => ts - x <= fpsWindow.current),
         ts,
       ];
       setSrc(next);
@@ -94,11 +112,23 @@ export function CameraCard() {
       if (!controller.signal.aborted) setError(true);
     });
 
-    return () => {
-      controller.abort();
-      if (url) URL.revokeObjectURL(url);
-    };
+    // The displayed frame stays until the next connection replaces it.
+    return () => controller.abort();
   }, [attempt, error]);
+
+  // Revoke a frame's URL only once the next one is displayed, or on unmount.
+  useLayoutEffect(() => {
+    if (src === null) return;
+    if (pendingUrl.current === src) pendingUrl.current = null;
+    return () => URL.revokeObjectURL(src);
+  }, [src]);
+
+  useEffect(
+    () => () => {
+      if (pendingUrl.current) URL.revokeObjectURL(pendingUrl.current);
+    },
+    []
+  );
 
   // Auto-retry when stream errors — camera may have recovered after a restart
   useEffect(() => {
@@ -107,19 +137,6 @@ export function CameraCard() {
     return () => clearTimeout(timer);
   }, [error, reconnect]);
 
-  // A camera that turned healthy again (after a config change, a reconnect or
-  // a container restart) is a new stream: the open response no longer gets
-  // frames, so reconnect. stateSince changes on every state transition.
-  const camera = health?.components.camera;
-  const healthySince = camera?.state === "healthy" ? camera.stateSince : null;
-  const lastHealthySince = useRef<number | null>(null);
-  useEffect(() => {
-    if (healthySince === null) return;
-    const previous = lastHealthySince.current;
-    lastHealthySince.current = healthySince;
-    if (previous !== null && previous !== healthySince) reconnect();
-  }, [healthySince, reconnect]);
-
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), TICK_MS);
     return () => clearInterval(timer);
@@ -127,7 +144,6 @@ export function CameraCard() {
 
   const lastFrame = frameTimes.current[frameTimes.current.length - 1] ?? null;
   const sinceMs = now - (lastFrame ?? connectedAt.current);
-  const stallMs = stallTimeoutMs(frameIntervalSeconds);
   const stalled = sinceMs > stallMs;
 
   // Frame-stall reconnect: no frame on this connection for too long.
@@ -135,12 +151,9 @@ export function CameraCard() {
     if (!error && stalled) reconnect();
   }, [error, stalled, reconnect]);
 
-  const recent = frameTimes.current.filter((x) => now - x <= FPS_WINDOW_MS);
-  const fps = recent.length / (FPS_WINDOW_MS / 1000);
-  // Warn once frames are late by more than one expected interval.
-  const late =
-    lastFrame === null ||
-    sinceMs > Math.max(5_000, 2 * (frameIntervalSeconds ?? 0) * 1000);
+  const recent = frameTimes.current.filter((x) => now - x <= fpsWindowMs);
+  const fps = recent.length / (fpsWindowMs / 1000);
+  const late = lastFrame === null || sinceMs > lateMs;
   const seconds = (sinceMs / 1000).toFixed(1);
   const label = late
     ? t("dashboard.camera.badge_stalled", {
