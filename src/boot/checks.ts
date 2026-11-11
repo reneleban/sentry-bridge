@@ -1,4 +1,5 @@
 import { Config } from "../config/config";
+import { ConnectionTestResult } from "../prusalink/types";
 
 // Non-blocking startup diagnostics (#13). The bridge starts regardless; these
 // results only tell the user what to fix. Hints are i18n keys, never raw error
@@ -13,7 +14,7 @@ export type BootCheckId =
 
 export type BootCheckHint =
   | "prusalinkUnreachable"
-  | "prusalinkAuth"
+  | "prusalinkCredentials"
   | "cameraUnreachable"
   | "obicoUnreachable"
   | "obicoNotPaired";
@@ -25,9 +26,9 @@ export interface BootCheckResult {
 }
 
 export interface BootCheckDeps {
-  testPrusaLink(config: Config): Promise<{ ok: boolean; error?: string }>;
-  /** Resolves with a frame, rejects when the stream is unreachable. */
-  testCamera(rtspUrl: string): Promise<Buffer>;
+  testPrusaLink(config: Config): Promise<ConnectionTestResult>;
+  /** Resolves when the camera delivers a frame, rejects otherwise. */
+  testCamera(camera: Config["camera"]): Promise<unknown>;
   /** Resolves when the server answers any HTTP response, rejects otherwise. */
   reachObico(serverUrl: string): Promise<void>;
 }
@@ -47,14 +48,13 @@ export async function runBootChecks(
   const [prusa, cameraOk, obicoOk] = await Promise.all([
     attempt(() => deps.testPrusaLink(config)).catch(() => ({
       ok: false,
-      error: "",
+      reason: "unreachable" as const,
     })),
-    succeeds(() => deps.testCamera(config.camera.rtspUrl)),
+    succeeds(() => deps.testCamera(config.camera)),
     succeeds(() => deps.reachObico(config.obico.serverUrl)),
   ]);
 
-  const authFailed = !prusa.ok && /\b401\b/.test(prusa.error ?? "");
-  const reachable = prusa.ok || authFailed;
+  const reachable = prusa.ok || prusa.reason === "unauthorized";
   const check = (id: BootCheckId, ok: boolean, hint: BootCheckHint) => ({
     id,
     ok,
@@ -66,7 +66,7 @@ export async function runBootChecks(
     check(
       "prusalink_auth",
       prusa.ok,
-      reachable ? "prusalinkAuth" : "prusalinkUnreachable"
+      reachable ? "prusalinkCredentials" : "prusalinkUnreachable"
     ),
     check("camera_rtsp", cameraOk, "cameraUnreachable"),
     check("obico_reachable", obicoOk, "obicoUnreachable"),

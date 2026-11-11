@@ -174,7 +174,7 @@ export default {
     hints: {
       prusalinkUnreachable:
         "Check the printer IP and that the printer is on and in the same network.",
-      prusalinkAuth:
+      prusalinkCredentials:
         "Check the PrusaLink username and password (printer: Settings → Network → PrusaLink).",
       cameraUnreachable:
         "Check that the printer has a camera and its Streaming setting in Prusa Connect is RTSP.",

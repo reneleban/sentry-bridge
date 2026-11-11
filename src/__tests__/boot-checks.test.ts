@@ -39,13 +39,17 @@ describe("runBootChecks", () => {
     const r = await runBootChecks(
       config,
       deps({
-        testPrusaLink: async () => ({ ok: false, error: "Auth failed (401)" }),
+        testPrusaLink: async () => ({
+          ok: false,
+          reason: "unauthorized",
+          error: "Auth failed",
+        }),
       })
     );
     expect(byId(r, "prusalink_reachable").ok).toBe(true);
     expect(byId(r, "prusalink_auth")).toMatchObject({
       ok: false,
-      hint: "prusalinkAuth",
+      hint: "prusalinkCredentials",
     });
   });
 
@@ -53,7 +57,11 @@ describe("runBootChecks", () => {
     const r = await runBootChecks(
       config,
       deps({
-        testPrusaLink: async () => ({ ok: false, error: "ECONNREFUSED" }),
+        testPrusaLink: async () => ({
+          ok: false,
+          reason: "unreachable",
+          error: "401 ECONNREFUSED",
+        }),
       })
     );
     expect(byId(r, "prusalink_reachable")).toMatchObject({
@@ -103,7 +111,11 @@ describe("runBootChecks", () => {
     const r = await runBootChecks(
       config,
       deps({
-        testPrusaLink: async () => ({ ok: false, error: "bad s3cret-pw" }),
+        testPrusaLink: async () => ({
+          ok: false,
+          reason: "unreachable",
+          error: "bad s3cret-pw",
+        }),
       })
     );
     const json = JSON.stringify(r);

@@ -13,17 +13,28 @@ jest.mock("../config/config", () => ({
 }));
 jest.mock("../prusalink/client", () => ({
   createPrusaLinkClient: () => ({
-    testConnection: async () => ({ ok: false, error: "Auth failed (401)" }),
+    testConnection: async () => ({
+      ok: false,
+      reason: "unauthorized",
+      error: "Auth failed (401)",
+    }),
   }),
 }));
+const mockTestStream = jest.fn();
 jest.mock("../camera/camera", () => ({
-  createCamera: () => ({ testStream: async () => Buffer.from("jpeg") }),
+  createCamera: () => ({ testStream: mockTestStream }),
+}));
+let mockRunningCamera: { latestFrame: () => Buffer | null } | null = null;
+jest.mock("../camera/registry", () => ({
+  getCameraInstance: () => mockRunningCamera,
 }));
 
 import { app } from "../server";
 
 beforeEach(() => {
   mockConfigured = true;
+  mockRunningCamera = null;
+  mockTestStream.mockReset().mockResolvedValue(Buffer.from("jpeg"));
   global.fetch = jest.fn().mockResolvedValue({ status: 200 }) as never;
 });
 
@@ -44,11 +55,34 @@ describe("/api/boot-checks", () => {
     expect(auth).toEqual({
       id: "prusalink_auth",
       ok: false,
-      hint: "prusalinkAuth",
+      hint: "prusalinkCredentials",
     });
 
     const get = await request(app).get("/api/boot-checks");
     expect(get.body).toEqual(post.body);
+  });
+
+  const cameraCheck = async () =>
+    (await request(app).post("/api/boot-checks")).body.results.find(
+      (r: { id: string }) => r.id === "camera_rtsp"
+    );
+
+  it("uses the running camera's recent frame instead of a second RTSP session", async () => {
+    mockRunningCamera = { latestFrame: () => Buffer.from("jpeg") };
+    expect((await cameraCheck()).ok).toBe(true);
+    expect(mockTestStream).not.toHaveBeenCalled();
+  });
+
+  it("fails the camera check when the running camera has no recent frame", async () => {
+    mockRunningCamera = { latestFrame: () => null };
+    expect((await cameraCheck()).ok).toBe(false);
+    expect(mockTestStream).not.toHaveBeenCalled();
+  });
+
+  it("probes the stream when no bridge camera runs", async () => {
+    mockTestStream.mockRejectedValue(new Error("ffmpeg failed"));
+    expect((await cameraCheck()).ok).toBe(false);
+    expect(mockTestStream).toHaveBeenCalled();
   });
 
   it("POST returns 409 when the bridge is not configured", async () => {

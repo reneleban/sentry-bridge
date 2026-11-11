@@ -175,7 +175,7 @@ export default {
     hints: {
       prusalinkUnreachable:
         "Drucker-IP prüfen und ob der Drucker eingeschaltet und im selben Netzwerk ist.",
-      prusalinkAuth:
+      prusalinkCredentials:
         "PrusaLink-Benutzername und -Passwort prüfen (Drucker: Einstellungen → Netzwerk → PrusaLink).",
       cameraUnreachable:
         "Prüfen, ob der Drucker eine Kamera hat und in Prusa Connect unter Streaming RTSP eingestellt ist.",
