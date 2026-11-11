@@ -644,6 +644,48 @@ describe("Camera", () => {
       ).toBe("Opening 'rtsp://***@10.0.0.1/live'");
     });
 
+    it("redacts passwords containing '/' or spaces", () => {
+      const out = formatFfmpegLog(
+        "[rtsp @ 0x1] Opening 'rtsp://user:pa/ss wo@rd@10.0.0.1/live' failed"
+      );
+      expect(out).toBe(
+        "[rtsp @ 0x1] Opening 'rtsp://***@10.0.0.1/live' failed"
+      );
+    });
+
+    it("redacts a URL split across stderr chunks in testStream errors", async () => {
+      mockSpawn.mockReturnValue(
+        makeMockProcess({
+          stderrData: [
+            "Opening 'rtsp://user:s3c",
+            "ret@10.0.0.1/live' failed: 401",
+          ],
+          exitCode: 1,
+        })
+      );
+      const camera = createCamera(config);
+      const err = await camera.testStream().catch((e: Error) => e);
+      expect((err as Error).message).toContain("rtsp://***@10.0.0.1/live");
+      expect((err as Error).message).not.toContain("s3c");
+    });
+
+    it("logs RTP ffmpeg stderr line by line with credentials redacted", () => {
+      const spy = jest
+        .spyOn(process.stderr, "write")
+        .mockImplementation(() => true);
+      const proc = makeMockProcess({});
+      mockSpawn.mockReturnValue(proc);
+      const camera = createCamera(config);
+      camera.startRtpStream(5004);
+      proc.stderr!.emit("data", "Opening 'rtsp://user:s3");
+      proc.stderr!.emit("data", "cret@10.0.0.1/live'\n");
+      const written = spy.mock.calls.map((c) => String(c[0])).join("");
+      spy.mockRestore();
+      camera.stop();
+      expect(written).toContain("rtsp://***@10.0.0.1/live");
+      expect(written).not.toContain("s3");
+    });
+
     it("quiets both ffmpeg processes and reads RTP liveness from -progress", () => {
       mockSpawn.mockImplementation(() => makeMockProcess({}));
       const camera = createCamera(config);

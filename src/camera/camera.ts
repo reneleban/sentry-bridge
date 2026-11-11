@@ -8,13 +8,11 @@ import { healthMonitor, circuitBreakerRegistry } from "../lib/health";
 import { HealthState, ErrorSeverity } from "../lib/health-monitor";
 
 // ffmpeg prints its input URL, password included. The greedy match runs to
-// the last "@" before the host, as ffmpeg does, so an "@" in the password is
-// also hidden.
+// the last "@" on the line, so a password with an "@", "/" or a space is also
+// hidden. Over-redacting is the safe failure mode.
 function redactRtspCredentials(text: string): string {
-  return text.replace(/(rtsps?:\/\/)[^\s/]*@/gi, "$1***@");
+  return text.replace(/(rtsps?:\/\/)[^'"\r\n]*@/gi, "$1***@");
 }
-
-function discard(): void {}
 
 /** Single exit point for ffmpeg output that reaches logs or error messages. */
 export function formatFfmpegLog(text: string): string {
@@ -28,26 +26,42 @@ interface StderrTail {
   clear(): void;
 }
 
-/** Keeps the last few stderr lines of a process for diagnostics. */
-function trackStderrTail(child: ChildProcess): StderrTail {
-  let lines: string[] = [];
+type StderrLineHandler = (line: string) => void;
+
+/**
+ * Splits a process's stderr into whole lines, so a URL split across two
+ * chunks is redacted as one. The pending partial line is flushed on close.
+ */
+function readStderrLines(child: ChildProcess, onLine: StderrLineHandler): void {
   let partial = "";
+  const emit = (line: string) => {
+    if (line.trim() !== "") onLine(redactRtspCredentials(line));
+  };
   child.stderr!.on("data", (d: Buffer | string) => {
     const parts = (partial + String(d)).split(/\r?\n|\r/);
     partial = parts.pop()!;
-    lines.push(...parts.filter((line) => line.trim() !== ""));
-    if (lines.length > STDERR_TAIL_LINES) {
-      lines = lines.slice(-STDERR_TAIL_LINES);
-    }
+    parts.forEach(emit);
   });
+  child.on("close", () => {
+    emit(partial);
+    partial = "";
+  });
+}
+
+/** Keeps the last few redacted stderr lines of a process for diagnostics. */
+function createStderrTail(): StderrTail & { push: StderrLineHandler } {
+  let lines: string[] = [];
   return {
+    push(line) {
+      lines.push(line);
+      if (lines.length > STDERR_TAIL_LINES)
+        lines = lines.slice(-STDERR_TAIL_LINES);
+    },
     lines() {
-      const all = partial.trim() !== "" ? [...lines, partial] : lines;
-      return all.slice(-STDERR_TAIL_LINES);
+      return lines.slice();
     },
     clear() {
       lines = [];
-      partial = "";
     },
   };
 }
@@ -101,9 +115,13 @@ export function createCamera(config: CameraConfig): CameraModule {
   // Every pipe must be read: once one is full, ffmpeg blocks on its next write
   // to it. Blocked on stderr, ffmpeg stops producing output at its next log
   // message, which can take hours to arrive.
-  function spawnFfmpeg(args: string[]): ChildProcess {
+  // stderr only ever reaches callers as whole, redacted lines.
+  function spawnFfmpeg(
+    args: string[],
+    onStderrLine: StderrLineHandler = () => {}
+  ): ChildProcess {
     const child = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
-    child.stderr!.on("data", discard);
+    readStderrLines(child, onStderrLine);
     return child;
   }
 
@@ -141,24 +159,28 @@ export function createCamera(config: CameraConfig): CameraModule {
       () =>
         new Promise<void>((resolve, reject) => {
           spawned = true;
-          proc = spawnFfmpeg([
-            "-hide_banner",
-            "-nostats",
-            "-loglevel",
-            "warning",
-            "-rtsp_transport",
-            "tcp",
-            "-i",
-            config.rtspUrl,
-            "-vf",
-            "fps=5",
-            "-f",
-            "image2pipe",
-            "-vcodec",
-            "mjpeg",
-            "pipe:1",
-          ]);
-          mjpegStderr = trackStderrTail(proc);
+          const tail = createStderrTail();
+          proc = spawnFfmpeg(
+            [
+              "-hide_banner",
+              "-nostats",
+              "-loglevel",
+              "warning",
+              "-rtsp_transport",
+              "tcp",
+              "-i",
+              config.rtspUrl,
+              "-vf",
+              "fps=5",
+              "-f",
+              "image2pipe",
+              "-vcodec",
+              "mjpeg",
+              "pipe:1",
+            ],
+            tail.push
+          );
+          mjpegStderr = tail;
           // Without a listener, a spawn failure (e.g. ENOENT) crashes the
           // process. The `close` that follows schedules the restart.
           proc.on("error", (err) => {
@@ -255,48 +277,50 @@ export function createCamera(config: CameraConfig): CameraModule {
 
   function spawnRtp(port: number, isRestart = false): void {
     const gen = ++rtpGeneration;
-    rtpProc = spawnFfmpeg([
-      "-hide_banner",
-      "-nostats",
-      "-loglevel",
-      "warning",
-      // Progress reports on stdout every 0.5 s are the watchdog's sign of life.
-      "-progress",
-      "pipe:1",
-      "-rtsp_transport",
-      "tcp",
-      "-i",
-      config.rtspUrl,
-      "-an",
-      "-c:v",
-      "libx264",
-      "-preset",
-      "ultrafast",
-      "-tune",
-      "zerolatency",
-      "-profile:v",
-      "baseline",
-      "-level",
-      "3.1",
-      "-g",
-      "30",
-      "-b:v",
-      "1500k",
-      "-maxrate",
-      "2000k",
-      "-bufsize",
-      "2000k",
-      "-f",
-      "rtp",
-      `rtp://127.0.0.1:${port}?pkt_size=1300`,
-    ]);
+    rtpProc = spawnFfmpeg(
+      [
+        "-hide_banner",
+        "-nostats",
+        "-loglevel",
+        "warning",
+        // Progress reports on stdout every 0.5 s are the watchdog's sign of life.
+        "-progress",
+        "pipe:1",
+        "-rtsp_transport",
+        "tcp",
+        "-i",
+        config.rtspUrl,
+        "-an",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-tune",
+        "zerolatency",
+        "-profile:v",
+        "baseline",
+        "-level",
+        "3.1",
+        "-g",
+        "30",
+        "-b:v",
+        "1500k",
+        "-maxrate",
+        "2000k",
+        "-bufsize",
+        "2000k",
+        "-f",
+        "rtp",
+        `rtp://127.0.0.1:${port}?pkt_size=1300`,
+      ],
+      (line) => {
+        if (gen !== rtpGeneration) return;
+        process.stderr.write(`[camera/rtp] ${line}\n`);
+      }
+    );
     rtpProc.stdout!.on("data", () => {
       if (gen !== rtpGeneration) return;
       resetRtpWatchdog(gen);
-    });
-    rtpProc.stderr!.on("data", (d: Buffer) => {
-      if (gen !== rtpGeneration) return;
-      process.stderr.write(`[camera/rtp] ${formatFfmpegLog(String(d))}`);
     });
     rtpProc.on("close", (code) => {
       if (gen !== rtpGeneration) return; // stale close event from a superseded process
@@ -439,25 +463,28 @@ export function createCamera(config: CameraConfig): CameraModule {
 
     testStream(timeoutMs = 10_000): Promise<Buffer> {
       return new Promise((resolve, reject) => {
-        const p = spawnFfmpeg([
-          "-rtsp_transport",
-          "tcp",
-          "-timeout",
-          "8000000", // 8s RTSP-Socket-Timeout (Mikrosekunden) — innerer Wächter
-          "-i",
-          config.rtspUrl,
-          "-frames:v",
-          "1",
-          "-update",
-          "1",
-          "-f",
-          "image2pipe",
-          "-vcodec",
-          "mjpeg",
-          "pipe:1",
-        ]);
+        const stderrTail = createStderrTail();
+        const p = spawnFfmpeg(
+          [
+            "-rtsp_transport",
+            "tcp",
+            "-timeout",
+            "8000000", // 8s RTSP-Socket-Timeout (Mikrosekunden) — innerer Wächter
+            "-i",
+            config.rtspUrl,
+            "-frames:v",
+            "1",
+            "-update",
+            "1",
+            "-f",
+            "image2pipe",
+            "-vcodec",
+            "mjpeg",
+            "pipe:1",
+          ],
+          stderrTail.push
+        );
 
-        const stderrTail = trackStderrTail(p);
         let settled = false;
 
         const timer = setTimeout(() => {

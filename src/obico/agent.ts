@@ -27,6 +27,13 @@ import {
 } from "./tunnel";
 import { HealthState, ErrorSeverity } from "../lib/health-monitor";
 
+// A frame upload that hangs would block the next one; Obico reports the
+// status in a short body (e.g. 413), so a prefix is enough for the log.
+const FRAME_UPLOAD_TIMEOUT_MS = 15_000;
+const FRAME_UPLOAD_ERROR_BODY_CHARS = 200;
+// Consecutive failures before the health monitor hears about it.
+const FRAME_UPLOAD_FAILURE_THRESHOLD = 3;
+
 export function createObicoAgent(
   config: ObicoAgentConfig,
   http: HttpFetcher,
@@ -382,6 +389,33 @@ export function createObicoAgent(
     }
   }
 
+  let frameUploadFailures = 0;
+
+  async function uploadFrame(jpeg: Buffer): Promise<void> {
+    const form = new FormData();
+    form.append(
+      "pic",
+      new Blob([new Uint8Array(jpeg)], { type: "image/jpeg" }),
+      "pic.jpg"
+    );
+    const res = await http.fetch(
+      apiUrl(config.serverUrl, "/api/v1/octo/pic/"),
+      {
+        method: "POST",
+        headers: { Authorization: `Token ${config.apiKey}` },
+        body: form,
+        signal: AbortSignal.timeout(FRAME_UPLOAD_TIMEOUT_MS),
+      }
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      const detail = body.trim().slice(0, FRAME_UPLOAD_ERROR_BODY_CHARS);
+      throw new Error(
+        `sendFrame failed: ${res.status}${detail ? ` ${detail}` : ""}`
+      );
+    }
+  }
+
   return {
     connect(onOpen?: () => void): void {
       disconnecting = false;
@@ -529,21 +563,20 @@ export function createObicoAgent(
     },
 
     async sendFrame(jpeg: Buffer): Promise<void> {
-      const form = new FormData();
-      form.append(
-        "pic",
-        new Blob([new Uint8Array(jpeg)], { type: "image/jpeg" }),
-        "pic.jpg"
-      );
-      const res = await http.fetch(
-        apiUrl(config.serverUrl, "/api/v1/octo/pic/"),
-        {
-          method: "POST",
-          headers: { Authorization: `Token ${config.apiKey}` },
-          body: form,
+      try {
+        await uploadFrame(jpeg);
+        frameUploadFailures = 0;
+      } catch (err) {
+        if (++frameUploadFailures === FRAME_UPLOAD_FAILURE_THRESHOLD) {
+          const reason = err instanceof Error ? err.message : String(err);
+          healthMonitor.pushError(
+            "obico_ws",
+            `Frame upload failing: ${reason}`,
+            ErrorSeverity.WARN
+          );
         }
-      );
-      if (!res.ok) throw new Error(`sendFrame failed: ${res.status}`);
+        throw err;
+      }
     },
 
     async fetchPrinterId(): Promise<number | null> {
