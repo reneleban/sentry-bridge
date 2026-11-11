@@ -8,7 +8,6 @@ export interface WizardData {
   /** Masked hint of the stored password; an empty password means "keep it". */
   passwordHint: string;
   obicoServerUrl: string;
-  obicoApiKey: string;
   /** Masked hint of the stored API key; set when the printer is already paired. */
   obicoApiKeyHint: string;
 }
@@ -30,7 +29,6 @@ const EMPTY: WizardData = {
   password: "",
   passwordHint: "",
   obicoServerUrl: "",
-  obicoApiKey: "",
   obicoApiKeyHint: "",
 };
 
@@ -51,7 +49,6 @@ export function WizardProvider({ children }: { children: React.ReactNode }) {
           password: "",
           passwordHint: cfg.prusalink?.passwordHint ?? "",
           obicoServerUrl: cfg.obico?.serverUrl ?? "",
-          obicoApiKey: "",
           obicoApiKeyHint: cfg.obico?.apiKeyHint ?? "",
         });
       })

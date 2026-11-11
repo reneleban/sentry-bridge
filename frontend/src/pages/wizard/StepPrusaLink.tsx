@@ -1,13 +1,7 @@
 import { useState, useEffect } from "react";
-import {
-  Button,
-  PasswordInput,
-  Stack,
-  TextInput,
-  Alert,
-  Text,
-} from "@mantine/core";
+import { Button, Stack, TextInput, Alert, Text } from "@mantine/core";
 import { IconPlugConnected, IconCheck, IconX } from "@tabler/icons-react";
+import { SecretInput } from "../../components/SecretInput";
 import { useTranslation } from "react-i18next";
 import { useWizard } from "./WizardContext";
 
@@ -72,14 +66,11 @@ export function StepPrusaLink() {
         value={data.username}
         onChange={(e) => setData({ username: e.currentTarget.value })}
       />
-      <PasswordInput
+      <SecretInput
         label={t("wizard.prusalink.password")}
         value={data.password}
         onChange={(e) => setData({ password: e.currentTarget.value })}
-        placeholder={data.passwordHint || undefined}
-        description={
-          data.passwordHint ? t("common.secret_keep_hint") : undefined
-        }
+        hint={data.passwordHint}
       />
       {status === "ok" && (
         <Alert color="green" icon={<IconCheck size={16} />}>
