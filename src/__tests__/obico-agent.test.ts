@@ -127,6 +127,21 @@ describe("buildStatusMessage()", () => {
     expect(msg.current_print_ts).toBeNull();
   });
 
+  it("treats READY (ready to print) as idle: ready, Operational, current_print_ts -1", () => {
+    const msg = buildStatusMessage({ ...idleStatus, state: "READY" }, null);
+    expect(msg.current_print_ts).toBe(-1);
+    expect(msg.status.state.text).toBe("Operational");
+    expect(msg.status.state.flags.ready).toBe(true);
+    expect(msg.status.state.flags.printing).toBe(false);
+  });
+
+  it("sends current_print_ts null in UNKNOWN, so Obico keeps the current print", () => {
+    const msg = buildStatusMessage({ ...idleStatus, state: "UNKNOWN" }, null);
+    expect(msg.current_print_ts).toBeNull();
+    expect(msg.status.state.text).toBe("Unknown");
+    expect(msg.status.state.flags.ready).toBe(false);
+  });
+
   it("reflects PAUSED state", () => {
     const msg = buildStatusMessage(
       { ...idleStatus, state: "PAUSED" },
