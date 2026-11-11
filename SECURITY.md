@@ -5,7 +5,7 @@ SentryBridge has no authentication. This is by design: it is meant to run on a p
 ## Supported deployment
 
 - A private LAN you control.
-- Remote access through a VPN such as WireGuard or Tailscale.
+- Remote access through a VPN such as WireGuard or Tailscale. If the VPN runs on the Docker host itself, add a port mapping on its VPN address; see [Access through a VPN](docs/guide/how-to/docker-compose.md#access-through-a-vpn).
 - Ports published on the Docker host's LAN IP only (`JANUS_HOST_IP`, see the [Docker Compose guide](docs/guide/how-to/docker-compose.md)).
 
 ## Not supported

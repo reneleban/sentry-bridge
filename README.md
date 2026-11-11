@@ -50,7 +50,7 @@ docker run -d \
 Replace `192.168.1.x` (three places) with the LAN IP of the machine running Docker. It is used for WebRTC and as the only address the ports are published on, so the bridge is not reachable on other interfaces. Because of this, `http://localhost:3000` does not work on the Docker host; use the LAN IP.
 
 > [!NOTE]
-> Docker-published ports bypass host firewalls such as `ufw` or `firewalld` (Docker manages its own iptables rules). Binding to the LAN IP, as above, is what keeps the port off other interfaces; a firewall rule on the host does not.
+> Docker-published ports bypass host firewalls such as `ufw` or `firewalld` (Docker manages its own iptables rules). Binding to the LAN IP, as above, is what keeps the port off other interfaces; a firewall rule on the host does not. For VPN access when the VPN runs on the Docker host itself, see [Access through a VPN](docs/guide/how-to/docker-compose.md#access-through-a-vpn).
 
 For the full guide → [docs/guide/](docs/guide/)
 

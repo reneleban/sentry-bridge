@@ -188,6 +188,31 @@ Footprint per container (measured): about 210 MB RAM and about a third of one CP
 
 ---
 
+## Access through a VPN
+
+The published ports are bound to `JANUS_HOST_IP` only. How a VPN client reaches the bridge depends on where the VPN runs:
+
+- **VPN that routes into the LAN** (subnet router, WireGuard on the router): nothing to do. Clients use the LAN IP, `http://<JANUS_HOST_IP>:3000`.
+- **VPN running on the Docker host itself** (Tailscale or WireGuard on the same machine): clients connect to the host's VPN address, for example `100.x.y.z`, which is not published. Add a second mapping for the web port on that address, in addition to the LAN mapping:
+
+  ```yaml
+  ports:
+    - "${JANUS_HOST_IP:?set JANUS_HOST_IP to the Docker host LAN IP}:${PORT:-3000}:3000"
+    - "100.x.y.z:3000:3000" # the host's VPN address
+    - "${JANUS_HOST_IP}:10100-10200:10100-10200/udp"
+  ```
+
+  Then open `http://100.x.y.z:3000`.
+
+Limits over a VPN on the Docker host:
+
+- The WebRTC live stream still advertises `JANUS_HOST_IP` as its ICE candidate and uses the UDP range published on that IP. It only works if the client can also route to that LAN IP.
+- The bridge dashboard's own camera view is the MJPEG stream served over the web port (`/stream`) and does not depend on Janus, so it works through the VPN address. I did not test how the Obico live view behaves when the WebRTC connection cannot be established.
+
+Do not bind to `0.0.0.0` as a shortcut: that publishes the bridge on every interface, including public ones.
+
+---
+
 ## Port reference
 
 | Port        | Protocol | Purpose                                                                  |
