@@ -19,7 +19,7 @@ SentryBridge has a web UI with printer control and config writes, but no authent
 ## Considered Options
 
 1. **A — Proxy the whole bridge UI through the tunnel.** Serve `/`, assets and all of `/api/*`.
-2. **B — `/api/*` tunnel plus a LAN link page.** Keep proxying only `/api/*` with `GET`, `POST`, `DELETE` (NFR-S03); answer `GET /` with a small static page that says the UI is LAN-only and links to the bridge URL.
+2. **B — `/api/*` tunnel plus a LAN link page.** Proxy `/api/*` (narrowed to an allow-list, see below) with `GET`, `POST`, `DELETE` (NFR-S03); answer `GET /` with a small static page that says the UI is LAN-only and links to the bridge URL.
 3. **C — Document the button as unsupported.** No `/` handling.
 
 ## Decision Outcome
@@ -30,12 +30,15 @@ Option A is rejected: it exposes an unauthenticated UI with printer control and 
 
 The page for `GET /` is self-contained (no scripts, styles or images loaded from elsewhere). Its link uses the configured `bridgeUrl`, or the auto-detected URL the agent already reports as base of `stream_url`. Every other path outside `/api/*` stays `403`.
 
+Within `/api/*`, the tunnel proxies only an explicit allow-list, not the whole prefix: a prefix rule would expose `POST /api/setup/save`, `/api/wizard/*`, `/api/bridge/reconnect` and `/api/control` to anyone with Obico access. The Obico server and web app call no bridge endpoint through the tunnel themselves (printer control and file prints use `passthru` messages), so the list holds only the read-only, OctoPrint-shaped `GET /api/files`. Paths are matched on the decoded, canonical pathname; traversal segments, empty segments, backslashes and percent-encoded `.`, `/`, `\` or NUL are rejected with `403`. As in moonraker-obico, the local request is sent with `Accept-Encoding: identity`.
+
 ## Consequences
 
 - **Positive:**
   - The OctoPrint button shows where the UI is instead of an error.
-  - No new attack surface: the tunnel serves nothing beyond what NFR-S03 already allowed, plus a static page.
-  - Tunnel replies use the official BSON format, so the `/api/*` tunnel works against a real Obico server.
+  - Smaller attack surface than before: the tunnel serves one read-only endpoint from an allow-list plus a static page; config, setup, wizard, reconnect, control and file-mutating endpoints are LAN-only.
+  - Tunnel replies use the official BSON format, so the allowed endpoints work against a real Obico server.
+  - A new endpoint is reachable through the tunnel only after it is added to the allow-list in `src/obico/tunnel.ts` and NFR-S03.
 - **Negative:**
   - The bridge UI is not usable remotely through Obico; users need the LAN, a VPN or their own authenticated reverse proxy.
   - Adds the `bson` dependency (Apache-2.0).
