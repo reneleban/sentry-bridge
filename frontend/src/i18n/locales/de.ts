@@ -160,4 +160,27 @@ export default {
     dark: "Dunkel",
     system: "System",
   },
+  bootChecks: {
+    title: "Startprüfung hat ein Problem gefunden",
+    recheck: "Erneut prüfen",
+    checks: {
+      prusalink_reachable: "PrusaLink erreichbar",
+      prusalink_auth: "PrusaLink-Zugangsdaten",
+      camera_rtsp: "Kamera-RTSP-Stream",
+      obico_reachable: "Obico-Server erreichbar",
+      obico_paired: "Mit Obico gekoppelt",
+    },
+    hints: {
+      prusalinkUnreachable:
+        "Drucker-IP prüfen und ob der Drucker eingeschaltet und im selben Netzwerk ist.",
+      prusalinkAuth:
+        "PrusaLink-Benutzername und -Passwort prüfen (Drucker: Einstellungen → Netzwerk → PrusaLink).",
+      cameraUnreachable:
+        "Prüfen, ob der Drucker eine Kamera hat und in Prusa Connect unter Streaming RTSP eingestellt ist.",
+      obicoUnreachable:
+        "Obico-Server-URL prüfen und ob der Server läuft und von der Bridge erreichbar ist.",
+      obicoNotPaired:
+        "Den Einrichtungsassistenten erneut ausführen, um mit Obico zu koppeln.",
+    },
+  },
 };
