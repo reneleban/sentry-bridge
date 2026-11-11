@@ -279,7 +279,7 @@ npm run install:all
 ### Run (dev)
 
 ```bash
-npm run dev:all          # backend (ts-node watch) + frontend (Vite)
+npm run dev:all          # backend (tsx watch) + frontend (Vite)
 ```
 
 Frontend proxies `/api/*` to the backend automatically.
