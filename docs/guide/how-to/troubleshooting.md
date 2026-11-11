@@ -109,6 +109,16 @@ Start with the dashboard: at startup the bridge checks PrusaLink (reachable, cre
 
 ---
 
+## 7. "403 Host not allowed" when opening the bridge via a DNS name
+
+**Symptom:** The UI or API answers `403` with `Host not allowed ... ALLOWED_HOSTS` when you open the bridge as e.g. `https://bridge.example.com` or `http://printer.tail1234.ts.net:3000`.
+
+**Cause:** The bridge has no login, so it only answers to hostnames that cannot be pointed at it by a foreign website (DNS rebinding): IP addresses, `localhost`, single-label names (e.g. `sentry-bridge`) and `*.local` names. A DNS name with dots is not on that list.
+
+**Fix:** Add the hostname to `ALLOWED_HOSTS` (comma-separated, without port) and restart the container, e.g. `ALLOWED_HOSTS=bridge.example.com`. See [Configuration](../reference/configuration.md).
+
+---
+
 ## Not listed here?
 
 If your issue is not covered above, check the [container logs](#3-obico-pairing-never-confirms--wizard-step-3-waits-indefinitely) first, then open an issue at [github.com/reneleban/sentry-bridge](https://github.com/reneleban/sentry-bridge).
