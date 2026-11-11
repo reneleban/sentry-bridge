@@ -32,6 +32,8 @@ export function createJanusRelay(
   let reconnectTimer: NodeJS.Timeout | null = null;
   // Bumped on every connect()/stop(); handlers of older sockets become no-ops.
   let generation = 0;
+  // Set when the Obico side dropped first; picks the health message.
+  let obicoLost = false;
 
   // Token-based URL path: /ws/token/janus/{token}/ (JanusWebConsumer, no Auth header needed)
   const obicoUrl =
@@ -45,15 +47,30 @@ export function createJanusRelay(
     }
   }
 
+  function isCurrent(gen: number): boolean {
+    return gen === generation && !stopped;
+  }
+
+  // A socket still CONNECTING would emit "closed before the connection was
+  // established" on close(); terminate() tears it down without that error.
+  function closeSocket(ws: WebSocket | null): void {
+    if (!ws) return;
+    if (ws.readyState === WebSocket.CONNECTING) {
+      ws.on("error", () => {});
+      ws.terminate();
+    } else {
+      ws.close();
+    }
+  }
+
   function closeSockets(): void {
-    janusWs?.close();
-    obicoWs?.close();
+    closeSocket(janusWs);
+    closeSocket(obicoWs);
     janusWs = null;
     obicoWs = null;
   }
 
-  function scheduleReconnect(): void {
-    const msg = "Janus WS connection lost";
+  function scheduleReconnect(msg: string): void {
     healthMonitor.setState("janus_relay", HealthState.RECOVERING);
     healthMonitor.pushError("janus_relay", msg, ErrorSeverity.WARN);
     healthMonitor.incrementRestarts("janus_relay");
@@ -69,65 +86,67 @@ export function createJanusRelay(
   function connect(): void {
     if (stopped) return;
     const gen = ++generation;
-    const current = () => gen === generation && !stopped;
+    obicoLost = false;
 
     const janus = new WebSocket(janusWsUrl, "janus-protocol");
     janusWs = janus;
     obicoWs = null;
 
     janus.on("open", () => {
-      if (!current()) return;
+      if (!isCurrent(gen)) return;
       console.log("[janus-relay] Janus WS open");
-      reconnectAttempt = 0;
-      healthMonitor.setState("janus_relay", HealthState.HEALTHY);
       connectObico(gen, janus);
     });
 
     // Janus → Obico
     janus.on("message", (data) => {
-      if (!current()) return;
+      if (!isCurrent(gen)) return;
       if (obicoWs?.readyState === WebSocket.OPEN) obicoWs.send(data);
     });
 
     janus.on("error", (err) => {
-      if (!current()) return;
+      if (!isCurrent(gen)) return;
       console.error("[janus-relay] Janus WS error:", err.message);
     });
 
     janus.on("close", () => {
-      if (!current()) return;
+      if (!isCurrent(gen)) return;
       console.log("[janus-relay] Janus WS closed");
-      obicoWs?.close();
-      obicoWs = null;
-      janusWs = null;
-      scheduleReconnect();
+      closeSockets();
+      scheduleReconnect(
+        obicoLost ? "Obico WS connection lost" : "Janus WS connection lost"
+      );
     });
   }
 
   function connectObico(gen: number, janus: WebSocket): void {
-    const current = () => gen === generation && !stopped;
     const obico = new WebSocket(obicoUrl, "janus-protocol");
     obicoWs = obico;
 
     obico.on("open", () => {
-      if (current()) console.log("[janus-relay] Obico WS open");
+      if (!isCurrent(gen)) return;
+      console.log("[janus-relay] Obico WS open");
+      // Only a full pair counts as recovered (#74).
+      reconnectAttempt = 0;
+      healthMonitor.setState("janus_relay", HealthState.HEALTHY);
     });
 
     // Obico → Janus
     obico.on("message", (data) => {
-      if (!current()) return;
+      if (!isCurrent(gen)) return;
       if (janus.readyState === WebSocket.OPEN) janus.send(data);
     });
 
     obico.on("error", (err) => {
-      if (current())
+      if (isCurrent(gen))
         console.error("[janus-relay] Obico WS error:", err.message);
     });
 
     // Janus close drives the reconnect; closing Janus here triggers it.
     obico.on("close", () => {
-      if (!current()) return;
+      if (!isCurrent(gen)) return;
       console.log("[janus-relay] Obico WS closed");
+      obicoLost = true;
       janus.close();
     });
   }
