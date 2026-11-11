@@ -133,18 +133,83 @@ describe("Camera", () => {
       circuitBreakerRegistry.delete("camera");
     });
 
-    it("registers a circuit breaker under 'camera' when the camera is created", () => {
-      createCamera(config);
+    it("registers its circuit breaker under 'camera' once the stream starts", () => {
+      mockSpawn.mockReturnValue(makeMockProcess({}));
+      const camera = createCamera(config);
+      camera.start();
       const cb = circuitBreakerRegistry.get("camera");
       expect(cb).toBeDefined();
       expect(cb!.state).toBe(CircuitState.CLOSED);
+      camera.stop();
     });
 
     it("allows reset() on the registered breaker to leave state CLOSED", () => {
-      createCamera(config);
+      mockSpawn.mockReturnValue(makeMockProcess({}));
+      const camera = createCamera(config);
+      camera.start();
       const cb = circuitBreakerRegistry.get("camera")!;
       cb.reset();
       expect(cb.state).toBe(CircuitState.CLOSED);
+      camera.stop();
+    });
+
+    it("leaves the running stream's breaker alone when a one-off camera is created", async () => {
+      mockSpawn.mockReturnValue(makeMockProcess({}));
+      const streaming = createCamera(config);
+      streaming.start();
+      const streamingCb = circuitBreakerRegistry.get("camera");
+
+      mockSpawn.mockReturnValue(
+        makeMockProcess({ stdoutData: [fakeJpeg], exitCode: 0 })
+      );
+      await createCamera(config).testStream();
+
+      expect(circuitBreakerRegistry.get("camera")).toBe(streamingCb);
+      streaming.stop();
+    });
+  });
+
+  describe("latestFrame()", () => {
+    it("returns null before the stream delivered a frame", () => {
+      mockSpawn.mockReturnValue(makeMockProcess({}));
+      const camera = createCamera(config);
+      camera.start();
+      expect(camera.latestFrame(15_000)).toBeNull();
+      camera.stop();
+    });
+
+    it("returns the last frame of the running stream", () => {
+      const proc = makeMockProcess({});
+      mockSpawn.mockReturnValue(proc);
+      const camera = createCamera(config);
+      camera.start();
+      proc.stdout!.emit("data", fakeJpeg);
+      expect(camera.latestFrame(15_000)).toEqual(fakeJpeg);
+      camera.stop();
+    });
+
+    it("returns null once the last frame is older than maxAgeMs", () => {
+      jest.useFakeTimers();
+      const proc = makeMockProcess({});
+      mockSpawn.mockReturnValue(proc);
+      const camera = createCamera(config);
+      camera.start();
+      proc.stdout!.emit("data", fakeJpeg);
+      jest.advanceTimersByTime(9_000);
+      expect(camera.latestFrame(10_000)).toEqual(fakeJpeg);
+      jest.advanceTimersByTime(2_000);
+      expect(camera.latestFrame(10_000)).toBeNull();
+      camera.stop();
+    });
+
+    it("returns null after stop()", () => {
+      const proc = makeMockProcess({});
+      mockSpawn.mockReturnValue(proc);
+      const camera = createCamera(config);
+      camera.start();
+      proc.stdout!.emit("data", fakeJpeg);
+      camera.stop();
+      expect(camera.latestFrame(15_000)).toBeNull();
     });
   });
 
@@ -241,6 +306,22 @@ describe("Camera", () => {
       expect(proc.kill).toHaveBeenCalledTimes(1);
       jest.advanceTimersByTime(5_000);
       expect(proc.kill).toHaveBeenLastCalledWith("SIGKILL");
+
+      camera.stopRtpStream();
+    });
+
+    it("keeps an RTP ffmpeg alive while it reports progress on stdout", () => {
+      jest.useFakeTimers();
+      const proc = makeMockProcess({});
+      mockSpawn.mockReturnValue(proc);
+      const camera = createCamera(config);
+      camera.startRtpStream(5004);
+
+      for (let i = 0; i < 6; i++) {
+        jest.advanceTimersByTime(10_000);
+        proc.stdout!.emit("data", Buffer.from("progress=continue\n"));
+      }
+      expect(proc.kill).not.toHaveBeenCalled();
 
       camera.stopRtpStream();
     });
@@ -507,7 +588,7 @@ describe("Camera", () => {
       ).toBe("Opening 'rtsp://***@10.0.0.1/live'");
     });
 
-    it("quiets the MJPEG ffmpeg but leaves RTP stats on", () => {
+    it("quiets both ffmpeg processes and reads RTP liveness from -progress", () => {
       mockSpawn.mockImplementation(() => makeMockProcess({}));
       const camera = createCamera(config);
       camera.start();
@@ -521,8 +602,14 @@ describe("Camera", () => {
         "-loglevel",
         "warning",
       ]);
-      expect(rtpArgs).not.toContain("-nostats");
-      expect(rtpArgs).not.toContain("-loglevel");
+      expect(rtpArgs.slice(0, 6)).toEqual([
+        "-hide_banner",
+        "-nostats",
+        "-loglevel",
+        "warning",
+        "-progress",
+        "pipe:1",
+      ]);
       camera.stop();
       camera.stopRtpStream();
     });
