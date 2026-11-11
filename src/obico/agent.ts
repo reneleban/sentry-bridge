@@ -474,7 +474,9 @@ export function createObicoAgent(
       // on subsequent ticks and Obico's UI flickers between "has file" and
       // "no file" → inconsistent display.
       const shouldResetAfterSend =
-        (status.state === "IDLE" || status.state === "STOPPED") &&
+        (status.state === "IDLE" ||
+          status.state === "READY" ||
+          status.state === "STOPPED") &&
         (wasActiveState || wasFinishingState);
 
       // During FINISHING or FINISHED, use cached job if no fresh job available
@@ -482,7 +484,9 @@ export function createObicoAgent(
 
       // Reset fileId only on true idle/stopped — not FINISHED/FINISHING (preserve for the finishing status message)
       if (
-        (status.state === "IDLE" || status.state === "STOPPED") &&
+        (status.state === "IDLE" ||
+          status.state === "READY" ||
+          status.state === "STOPPED") &&
         activePrintFileId !== null
       ) {
         activePrintFileId = null;
