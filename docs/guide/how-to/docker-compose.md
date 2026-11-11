@@ -80,16 +80,6 @@ hostname -I | awk '{print $1}'
 
 ---
 
-### Volume ownership
-
-The container runs as the unprivileged user `node` (uid 1000), not as root. The mounted `/config` directory must be writable by uid 1000, otherwise the wizard cannot save `config.json`:
-
-```bash
-mkdir -p config && sudo chown 1000:1000 config
-```
-
-`config.json` is written with mode `0600` (owner read/write only). If you upgrade an existing setup that ran as root, run the `chown` above (also on the existing `config.json`).
-
 ## Step 3 — Start the container
 
 ```bash

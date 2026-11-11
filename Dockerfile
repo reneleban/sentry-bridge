@@ -28,10 +28,7 @@ COPY --from=backend-build /app/dist ./dist
 COPY --from=frontend-build /app/frontend/dist ./public
 COPY config/janus ./config/janus
 
-# Config is mounted as a volume — never baked into the image.
-# Runs as the unprivileged "node" user; a host-mounted /config must be writable by it (uid 1000).
-RUN mkdir -p /config && chown node:node /config
-USER node
+# Config is mounted as a volume — never baked into the image
 VOLUME ["/config"]
 
 EXPOSE 3000
