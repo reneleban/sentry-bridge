@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from "ws";
 import * as http from "node:http";
 import * as zlib from "node:zlib";
+import { BSON } from "bson";
 import { createObicoAgent } from "../obico/agent";
 import { ObicoAgentConfig, PrusaLinkCommandDispatcher } from "../obico/types";
 import { PrinterStatus, JobInfo } from "../prusalink/types";
@@ -1179,6 +1180,7 @@ describe("http.tunnelv2 handler", () => {
         serverUrl: `http://localhost:${wsPort}`,
         apiKey: "key",
         localPort: tunnelPort,
+        streamUrl: "http://192.168.1.50:3000/stream",
       },
       mockHttp,
       mockDispatcher
@@ -1198,7 +1200,8 @@ describe("http.tunnelv2 handler", () => {
       );
       serverSocket.on("message", (data) => {
         try {
-          const msg = JSON.parse(data.toString());
+          if (typeof data === "string" || !Buffer.isBuffer(data)) return;
+          const msg = BSON.deserialize(data, { promoteBuffers: true });
           if (msg["http.tunnelv2"]?.ref === ref) {
             clearTimeout(timer);
             resolve(msg["http.tunnelv2"]);
@@ -1222,7 +1225,7 @@ describe("http.tunnelv2 handler", () => {
 
     setTimeout(() => {
       serverSocket.send(
-        JSON.stringify({
+        BSON.serialize({
           "http.tunnelv2": {
             ref: "T1",
             method: "GET",
@@ -1237,7 +1240,7 @@ describe("http.tunnelv2 handler", () => {
         .then((tunnel) => {
           expect(tunnel.ref).toBe("T1");
           expect(tunnel.response.status).toBe(200);
-          expect(typeof tunnel.response.content).toBe("string");
+          expect(Buffer.isBuffer(tunnel.response.content)).toBe(true);
           expect(typeof tunnel.response.compressed).toBe("boolean");
           expect(Array.isArray(tunnel.response.cookies)).toBe(true);
           agent.disconnect();
@@ -1262,7 +1265,7 @@ describe("http.tunnelv2 handler", () => {
 
     setTimeout(() => {
       serverSocket.send(
-        JSON.stringify({
+        BSON.serialize({
           "http.tunnelv2": {
             ref: "T2",
             method: "GET",
@@ -1276,9 +1279,8 @@ describe("http.tunnelv2 handler", () => {
       waitForTunnelResponse(serverSocket, "T2")
         .then((tunnel) => {
           expect(tunnel.response.compressed).toBe(true);
-          // Verify round-trip: base64-decode → zlib.inflateSync → "X".repeat(2000)
-          const decoded = Buffer.from(tunnel.response.content, "base64");
-          const inflated = zlib.inflateSync(decoded).toString();
+          // Round-trip: raw zlib bytes → zlib.inflateSync → "X".repeat(2000)
+          const inflated = zlib.inflateSync(tunnel.response.content).toString();
           expect(inflated).toBe("X".repeat(2000));
           agent.disconnect();
           done();
@@ -1302,7 +1304,7 @@ describe("http.tunnelv2 handler", () => {
 
     setTimeout(() => {
       serverSocket.send(
-        JSON.stringify({
+        BSON.serialize({
           "http.tunnelv2": {
             ref: "T3",
             method: "GET",
@@ -1316,10 +1318,7 @@ describe("http.tunnelv2 handler", () => {
       waitForTunnelResponse(serverSocket, "T3")
         .then((tunnel) => {
           expect(tunnel.response.compressed).toBe(false);
-          const decoded = Buffer.from(
-            tunnel.response.content,
-            "base64"
-          ).toString();
+          const decoded = tunnel.response.content.toString();
           expect(decoded).toBe("tiny");
           agent.disconnect();
           done();
@@ -1343,7 +1342,7 @@ describe("http.tunnelv2 handler", () => {
 
     setTimeout(() => {
       serverSocket.send(
-        JSON.stringify({
+        BSON.serialize({
           "http.tunnelv2": {
             ref: "T4",
             method: "PUT",
@@ -1379,7 +1378,7 @@ describe("http.tunnelv2 handler", () => {
 
     setTimeout(() => {
       serverSocket.send(
-        JSON.stringify({
+        BSON.serialize({
           "http.tunnelv2": {
             ref: "T5",
             method: "GET",
@@ -1415,7 +1414,7 @@ describe("http.tunnelv2 handler", () => {
 
     setTimeout(() => {
       serverSocket.send(
-        JSON.stringify({
+        BSON.serialize({
           "http.tunnelv2": {
             ref: "T6",
             method: "GET",
@@ -1460,7 +1459,7 @@ describe("http.tunnelv2 handler", () => {
 
     setTimeout(() => {
       serverSocket.send(
-        JSON.stringify({
+        BSON.serialize({
           "http.tunnelv2": {
             ref: "T7",
             method: "GET",
@@ -1484,8 +1483,8 @@ describe("http.tunnelv2 handler", () => {
     }, 50);
   });
 
-  // Test 8: POST via tunnel with base64 body → body forwarded (FILES-02 over Obico tunnel)
-  it("INFRA-02 T8: forwards POST via tunnel with base64 body (FILES-02 over Obico tunnel)", (done) => {
+  // Test 8: POST via tunnel with raw body → body forwarded (FILES-02 over Obico tunnel)
+  it("INFRA-02 T8: forwards POST via tunnel with raw body (FILES-02 over Obico tunnel)", (done) => {
     let serverSocket: WebSocket;
     wss.on("connection", (ws) => {
       serverSocket = ws;
@@ -1499,13 +1498,13 @@ describe("http.tunnelv2 handler", () => {
 
     setTimeout(() => {
       serverSocket.send(
-        JSON.stringify({
+        BSON.serialize({
           "http.tunnelv2": {
             ref: "T8",
             method: "POST",
             path: "/api/files/upload",
             headers: { "content-type": "application/octet-stream" },
-            data: Buffer.from("hello").toString("base64"),
+            data: Buffer.from("hello"),
             timeout: 10,
           },
         })
@@ -1541,7 +1540,7 @@ describe("http.tunnelv2 handler", () => {
 
     setTimeout(() => {
       serverSocket.send(
-        JSON.stringify({
+        BSON.serialize({
           "http.tunnelv2": {
             ref: "T9",
             method: "DELETE",
@@ -1579,7 +1578,7 @@ describe("http.tunnelv2 handler", () => {
 
     setTimeout(() => {
       serverSocket.send(
-        JSON.stringify({
+        BSON.serialize({
           "http.tunnelv2": {
             ref: "T10",
             method: "PUT",
@@ -1601,6 +1600,53 @@ describe("http.tunnelv2 handler", () => {
           done(err);
         });
     }, 50);
+  });
+
+  function tunnelRoundTrip(request: object, ref: string): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const agent = makeAgent();
+      wss.on("connection", (serverSocket) => {
+        waitForTunnelResponse(serverSocket, ref)
+          .then(resolve, reject)
+          .finally(() => agent.disconnect());
+        serverSocket.send(
+          BSON.serialize({ "http.tunnelv2": { ref, ...request } })
+        );
+      });
+      agent.connect();
+    });
+  }
+
+  it("answers GET / with a LAN-only HTML page linking to the bridge", async () => {
+    const tunnel = await tunnelRoundTrip(
+      { method: "get", path: "/?x=1", headers: {}, data: Buffer.alloc(0) },
+      "ROOT"
+    );
+    expect(tunnel.response.status).toBe(200);
+    expect(tunnel.response.headers["Content-Type"]).toMatch(/text\/html/);
+    const raw: Buffer = tunnel.response.content;
+    const html = (
+      tunnel.response.compressed ? zlib.inflateSync(raw) : raw
+    ).toString();
+    expect(html).toContain('href="http://192.168.1.50:3000/"');
+    expect(html).toMatch(/LAN/);
+    expect(html).not.toMatch(/<(script|link|img)\b/i);
+  });
+
+  it("rejects other UI paths such as /assets/ with 403", async () => {
+    const tunnel = await tunnelRoundTrip(
+      { method: "get", path: "/assets/index.js", headers: {} },
+      "ASSET"
+    );
+    expect(tunnel.response.status).toBe(403);
+  });
+
+  it("rejects POST / with 403", async () => {
+    const tunnel = await tunnelRoundTrip(
+      { method: "post", path: "/", headers: {} },
+      "ROOTPOST"
+    );
+    expect(tunnel.response.status).toBe(403);
   });
 });
 

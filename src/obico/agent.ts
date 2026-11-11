@@ -1,6 +1,7 @@
 import WebSocket from "ws";
 import * as nodeHttp from "node:http";
 import * as zlib from "node:zlib";
+import { BSON } from "bson";
 import { createReadStream, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as pathJoin, basename as pathBasename } from "node:path";
@@ -116,6 +117,25 @@ export function createObicoAgent(
     return serverUrl.replace(/\/$/, "") + path;
   }
 
+  // Obico sends JSON text frames, and BSON binary frames for messages with
+  // binary payloads (http.tunnelv2 requests, see obico-server consumers.py).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function decodeAgentFrame(data: Buffer, isBinary: boolean): any {
+    if (isBinary) return BSON.deserialize(data, { promoteBuffers: true });
+    return JSON.parse(data.toString());
+  }
+
+  const loggedParseErrors = new Set<string>();
+  function logParseErrorOnce(isBinary: boolean, err: unknown): void {
+    const kind = isBinary ? "BSON" : "JSON";
+    if (loggedParseErrors.has(kind)) return;
+    loggedParseErrors.add(kind);
+    console.warn(
+      `[obico] ignoring undecodable ${kind} frame (further ones are not logged):`,
+      (err as Error).message
+    );
+  }
+
   let onOpenCallback: (() => void) | null = null;
   let reconnectAttempt = 0;
 
@@ -140,23 +160,25 @@ export function createObicoAgent(
             }
           });
 
-          ws.on("message", (data) => {
-            console.log("[obico] ← received:", data.toString());
+          ws.on("message", (data, isBinary) => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            let msg: any;
             try {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const msg = JSON.parse(data.toString()) as any;
-              if (msg.passthru) handlePassthru(msg.passthru);
-              if (Array.isArray(msg.commands)) handleCommands(msg.commands);
-              // Obico also sends {"janus": null}; only string payloads are Janus JSON.
-              if (typeof msg.janus === "string" && msg.janus)
-                handleJanus(msg.janus);
-              if (msg["http.tunnelv2"]) {
-                handleHttpTunnel(msg["http.tunnelv2"]).catch((e) =>
-                  console.error("[obico] handleHttpTunnel failed:", e)
-                );
-              }
-            } catch {
-              // ignore malformed messages
+              msg = decodeAgentFrame(data as Buffer, isBinary);
+            } catch (err) {
+              logParseErrorOnce(isBinary, err);
+              return;
+            }
+            if (!isBinary) console.log("[obico] ← received:", data.toString());
+            if (msg.passthru) handlePassthru(msg.passthru);
+            if (Array.isArray(msg.commands)) handleCommands(msg.commands);
+            // Obico also sends {"janus": null}; only string payloads are Janus JSON.
+            if (typeof msg.janus === "string" && msg.janus)
+              handleJanus(msg.janus);
+            if (msg["http.tunnelv2"]) {
+              handleHttpTunnel(msg["http.tunnelv2"]).catch((e) =>
+                console.error("[obico] handleHttpTunnel failed:", e)
+              );
             }
           });
 
@@ -344,15 +366,39 @@ export function createObicoAgent(
         response: {
           status,
           compressed,
-          content: finalContent.toString("base64"),
+          content: finalContent,
           cookies: [],
           headers: respHeaders,
         },
       },
     };
+    // Same shape as moonraker-obico tunnel.py send_http_to_local_v2: a BSON
+    // frame whose content holds raw (optionally zlib-compressed) bytes.
     if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(payload));
+      ws.send(BSON.serialize(payload));
     }
+  }
+
+  function bridgeBaseUrl(): string | null {
+    return config.streamUrl ? config.streamUrl.replace(/\/stream$/, "") : null;
+  }
+
+  function escapeHtml(s: string): string {
+    return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  }
+
+  function lanOnlyPage(): Buffer {
+    const base = bridgeBaseUrl();
+    const link = base
+      ? `<p><a href="${escapeHtml(base)}/">Open SentryBridge on your LAN: ${escapeHtml(base)}/</a></p>`
+      : "<p>Open the bridge at its LAN address.</p>";
+    return Buffer.from(
+      `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>SentryBridge</title>` +
+        `<style>body{font-family:sans-serif;max-width:40em;margin:3em auto;padding:0 1em}</style></head>` +
+        `<body><h1>SentryBridge</h1>` +
+        `<p>The SentryBridge web UI is only available on the local network (LAN). ` +
+        `It is not exposed through the Obico tunnel.</p>${link}</body></html>`
+    );
   }
 
   const ALLOWED_TUNNEL_METHODS = ["GET", "POST", "DELETE"] as const;
@@ -374,20 +420,23 @@ export function createObicoAgent(
       sendTunnelResponse(ref, 405, Buffer.from("method not allowed"), {});
       return;
     }
+    // ADR-0010: "/" gets a static page pointing to the LAN UI; nothing else of the UI
+    if (method === "GET" && path.split("?")[0] === "/") {
+      sendTunnelResponse(ref, 200, lanOnlyPage(), {
+        "Content-Type": "text/html; charset=utf-8",
+      });
+      return;
+    }
     if (!path.startsWith("/api/")) {
       sendTunnelResponse(ref, 403, Buffer.from("path not allowed"), {});
       return;
     }
 
-    // Decode optional request body (Obico sends base64 in tunnel.data for POST)
-    let body: Buffer | null = null;
-    if (typeof tunnel.data === "string" && tunnel.data.length > 0) {
-      try {
-        body = Buffer.from(tunnel.data, "base64");
-      } catch {
-        body = null;
-      }
-    }
+    // Obico sends the request body as raw bytes (BSON binary)
+    const body: Buffer | null =
+      Buffer.isBuffer(tunnel.data) && tunnel.data.length > 0
+        ? tunnel.data
+        : null;
 
     const port = config.localPort ?? 3000;
     try {
