@@ -56,7 +56,10 @@ export function createCamera(config: CameraConfig): CameraModule {
   let proc: ChildProcess | null = null;
   let rtpProc: ChildProcess | null = null;
   let frameCallback: ((frame: Buffer) => void) | null = null;
-  const subscribers = new Map<symbol, (frame: Buffer) => void>();
+  const subscribers = new Map<
+    symbol,
+    { onFrame: (frame: Buffer) => void; onEnd: () => void }
+  >();
 
   let mjpegStopped = false;
   let mjpegGeneration = 0;
@@ -89,7 +92,13 @@ export function createCamera(config: CameraConfig): CameraModule {
     lastFrame = frame;
     lastFrameAt = Date.now();
     if (frameCallback) frameCallback(frame);
-    for (const cb of subscribers.values()) cb(frame);
+    for (const sub of subscribers.values()) sub.onFrame(frame);
+  }
+
+  function endSubscriptions(): void {
+    const ended = [...subscribers.values()];
+    subscribers.clear();
+    for (const sub of ended) sub.onEnd();
   }
 
   // Every pipe must be read: once one is full, ffmpeg blocks on its next write
@@ -345,6 +354,7 @@ export function createCamera(config: CameraConfig): CameraModule {
       }
       lastFrame = null;
       healthMonitor.setState("camera", HealthState.DOWN);
+      endSubscriptions();
     },
 
     stopGracefully(timeoutMs: number): Promise<void> {
@@ -359,6 +369,7 @@ export function createCamera(config: CameraConfig): CameraModule {
       }
       lastFrame = null;
       healthMonitor.setState("camera", HealthState.DOWN);
+      endSubscriptions();
       const p = proc;
       proc = null;
       if (!p) return Promise.resolve();
@@ -384,8 +395,12 @@ export function createCamera(config: CameraConfig): CameraModule {
       });
     },
 
-    subscribe(id: symbol, callback: (frame: Buffer) => void): void {
-      subscribers.set(id, callback);
+    subscribe(
+      id: symbol,
+      onFrame: (frame: Buffer) => void,
+      onEnd: () => void
+    ): void {
+      subscribers.set(id, { onFrame, onEnd });
     },
 
     unsubscribe(id: symbol): void {
