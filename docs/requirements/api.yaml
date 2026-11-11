@@ -616,29 +616,40 @@ components:
           example: Connection failed
 
     PublicConfig:
+      type: object
       description: >-
-        Config as returned by GET /api/config: Config without prusalink.password and
-        obico.apiKey, which are replaced by hints.
-      allOf:
-        - $ref: "#/components/schemas/Config"
-        - type: object
+        Config as returned by GET /api/config: prusalink.password and obico.apiKey are
+        replaced by hints. Non-secret fields reference Config (no allOf, because Config
+        requires the secrets).
+      properties:
+        name:
+          $ref: "#/components/schemas/Config/properties/name"
+        prusalink:
+          type: object
           properties:
-            prusalink:
-              type: object
-              properties:
-                password:
-                  not: {}
-                passwordHint:
-                  type: string
-                  example: "***ord"
-            obico:
-              type: object
-              properties:
-                apiKey:
-                  not: {}
-                apiKeyHint:
-                  type: string
-                  example: "***0f1"
+            url:
+              $ref: "#/components/schemas/Config/properties/prusalink/properties/url"
+            username:
+              $ref: "#/components/schemas/Config/properties/prusalink/properties/username"
+            passwordHint:
+              type: string
+              example: "***ord"
+        camera:
+          $ref: "#/components/schemas/Config/properties/camera"
+        obico:
+          type: object
+          properties:
+            serverUrl:
+              $ref: "#/components/schemas/Config/properties/obico/properties/serverUrl"
+            apiKeyHint:
+              type: string
+              example: "***0f1"
+        polling:
+          $ref: "#/components/schemas/Config/properties/polling"
+        shutdown:
+          $ref: "#/components/schemas/Config/properties/shutdown"
+        bridgeUrl:
+          $ref: "#/components/schemas/Config/properties/bridgeUrl"
     Config:
       type: object
       required: [prusalink, camera, obico]
@@ -696,6 +707,9 @@ components:
               type: integer
               default: 3
               example: 3
+        bridgeUrl:
+          type: string
+          description: Optional URL under which the bridge is reachable (auto-detected otherwise)
 
     HealthResponse:
       type: object
