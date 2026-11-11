@@ -29,68 +29,113 @@ export function createJanusRelay(
   let obicoWs: WebSocket | null = null;
   let stopped = false;
   let reconnectAttempt = 0;
+  let reconnectTimer: NodeJS.Timeout | null = null;
+  // Bumped on every connect()/stop(); handlers of older sockets become no-ops.
+  let generation = 0;
 
   // Token-based URL path: /ws/token/janus/{token}/ (JanusWebConsumer, no Auth header needed)
   const obicoUrl =
     obicoServerUrl.replace(/\/$/, "").replace(/^http/, "ws") +
     `/ws/token/janus/${apiKey}/`;
 
+  function clearReconnect(): void {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+  }
+
+  function closeSockets(): void {
+    janusWs?.close();
+    obicoWs?.close();
+    janusWs = null;
+    obicoWs = null;
+  }
+
+  function scheduleReconnect(): void {
+    const msg = "Janus WS connection lost";
+    healthMonitor.setState("janus_relay", HealthState.RECOVERING);
+    healthMonitor.pushError("janus_relay", msg, ErrorSeverity.WARN);
+    healthMonitor.incrementRestarts("janus_relay");
+    const delay = calculateDelay(reconnectAttempt, resilienceConfig.retry);
+    reconnectAttempt++;
+    clearReconnect();
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connect();
+    }, delay);
+  }
+
   function connect(): void {
     if (stopped) return;
+    const gen = ++generation;
+    const current = () => gen === generation && !stopped;
 
-    janusWs = new WebSocket(janusWsUrl, "janus-protocol");
-    obicoWs = new WebSocket(obicoUrl, "janus-protocol");
+    const janus = new WebSocket(janusWsUrl, "janus-protocol");
+    janusWs = janus;
+    obicoWs = null;
 
-    janusWs.on("open", () => {
+    janus.on("open", () => {
+      if (!current()) return;
       console.log("[janus-relay] Janus WS open");
       reconnectAttempt = 0;
       healthMonitor.setState("janus_relay", HealthState.HEALTHY);
+      connectObico(gen, janus);
     });
-    obicoWs.on("open", () => console.log("[janus-relay] Obico WS open"));
 
     // Janus → Obico
-    janusWs.on("message", (data) => {
-      if (obicoWs?.readyState === WebSocket.OPEN) {
-        obicoWs.send(data);
-      }
+    janus.on("message", (data) => {
+      if (!current()) return;
+      if (obicoWs?.readyState === WebSocket.OPEN) obicoWs.send(data);
+    });
+
+    janus.on("error", (err) => {
+      if (!current()) return;
+      console.error("[janus-relay] Janus WS error:", err.message);
+    });
+
+    janus.on("close", () => {
+      if (!current()) return;
+      console.log("[janus-relay] Janus WS closed");
+      obicoWs?.close();
+      obicoWs = null;
+      janusWs = null;
+      scheduleReconnect();
+    });
+  }
+
+  function connectObico(gen: number, janus: WebSocket): void {
+    const current = () => gen === generation && !stopped;
+    const obico = new WebSocket(obicoUrl, "janus-protocol");
+    obicoWs = obico;
+
+    obico.on("open", () => {
+      if (current()) console.log("[janus-relay] Obico WS open");
     });
 
     // Obico → Janus
-    obicoWs.on("message", (data) => {
-      if (janusWs?.readyState === WebSocket.OPEN) {
-        janusWs.send(data);
-      }
+    obico.on("message", (data) => {
+      if (!current()) return;
+      if (janus.readyState === WebSocket.OPEN) janus.send(data);
     });
 
-    janusWs.on("error", (err) =>
-      console.error("[janus-relay] Janus WS error:", err.message)
-    );
-    obicoWs.on("error", (err) =>
-      console.error("[janus-relay] Obico WS error:", err.message)
-    );
-
-    janusWs.on("close", () => {
-      console.log("[janus-relay] Janus WS closed");
-      obicoWs?.close();
-      if (!stopped) {
-        const msg = "Janus WS connection lost";
-        healthMonitor.setState("janus_relay", HealthState.RECOVERING);
-        healthMonitor.pushError("janus_relay", msg, ErrorSeverity.WARN);
-        healthMonitor.incrementRestarts("janus_relay");
-        const delay = calculateDelay(reconnectAttempt, resilienceConfig.retry);
-        reconnectAttempt++;
-        setTimeout(connect, delay);
-      }
+    obico.on("error", (err) => {
+      if (current())
+        console.error("[janus-relay] Obico WS error:", err.message);
     });
 
-    obicoWs.on("close", () => {
+    // Janus close drives the reconnect; closing Janus here triggers it.
+    obico.on("close", () => {
+      if (!current()) return;
       console.log("[janus-relay] Obico WS closed");
-      janusWs?.close();
+      janus.close();
     });
   }
 
   return {
     start(): void {
+      clearReconnect();
+      closeSockets();
       stopped = false;
       reconnectAttempt = 0;
       connect();
@@ -98,10 +143,9 @@ export function createJanusRelay(
 
     stop(): void {
       stopped = true;
-      janusWs?.close();
-      obicoWs?.close();
-      janusWs = null;
-      obicoWs = null;
+      generation++;
+      clearReconnect();
+      closeSockets();
       healthMonitor.setState("janus_relay", HealthState.DOWN);
     },
   };
