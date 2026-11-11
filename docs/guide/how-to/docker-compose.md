@@ -199,7 +199,7 @@ The published ports are bound to `JANUS_HOST_IP` only. How a VPN client reaches 
   ports:
     - "${JANUS_HOST_IP:?set JANUS_HOST_IP to the Docker host LAN IP}:${PORT:-3000}:3000"
     - "100.x.y.z:3000:3000" # the host's VPN address
-    - "${JANUS_HOST_IP}:10100-10200:10100-10200/udp"
+    - "${JANUS_HOST_IP}:${JANUS_RTP_PORT_RANGE:-10100-10200}:${JANUS_RTP_PORT_RANGE:-10100-10200}/udp"
   ```
 
   Then open `http://100.x.y.z:3000`.
@@ -207,7 +207,7 @@ The published ports are bound to `JANUS_HOST_IP` only. How a VPN client reaches 
 Limits over a VPN on the Docker host:
 
 - The WebRTC live stream still advertises `JANUS_HOST_IP` as its ICE candidate and uses the UDP range published on that IP. It only works if the client can also route to that LAN IP.
-- The bridge dashboard's own camera view is the MJPEG stream served over the web port (`/stream`) and does not depend on Janus, so it works through the VPN address. I did not test how the Obico live view behaves when the WebRTC connection cannot be established.
+- The bridge dashboard's own camera view is the MJPEG stream served over the web port (`/stream`) and does not depend on Janus, so it works through the VPN address. The live view in the Obico app uses WebRTC and is subject to the limit above.
 
 Do not bind to `0.0.0.0` as a shortcut: that publishes the bridge on every interface, including public ones.
 
