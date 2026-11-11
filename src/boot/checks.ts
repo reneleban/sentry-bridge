@@ -32,8 +32,10 @@ export interface BootCheckDeps {
   reachObico(serverUrl: string): Promise<void>;
 }
 
-const succeeds = (p: Promise<unknown>) =>
-  p.then(
+// Defer each probe so a synchronous throw becomes a failed check.
+const attempt = <T>(fn: () => Promise<T>) => Promise.resolve().then(fn);
+const succeeds = (fn: () => Promise<unknown>) =>
+  attempt(fn).then(
     () => true,
     () => false
   );
@@ -43,9 +45,12 @@ export async function runBootChecks(
   deps: BootCheckDeps
 ): Promise<BootCheckResult[]> {
   const [prusa, cameraOk, obicoOk] = await Promise.all([
-    deps.testPrusaLink(config).catch(() => ({ ok: false, error: "" })),
-    succeeds(deps.testCamera(config.camera.rtspUrl)),
-    succeeds(deps.reachObico(config.obico.serverUrl)),
+    attempt(() => deps.testPrusaLink(config)).catch(() => ({
+      ok: false,
+      error: "",
+    })),
+    succeeds(() => deps.testCamera(config.camera.rtspUrl)),
+    succeeds(() => deps.reachObico(config.obico.serverUrl)),
   ]);
 
   const authFailed = !prusa.ok && /\b401\b/.test(prusa.error ?? "");
