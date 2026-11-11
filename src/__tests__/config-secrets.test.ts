@@ -15,6 +15,12 @@ jest.mock("../prusalink/client", () => ({
   })),
 }));
 
+const mockWaitForPairing = jest.fn();
+jest.mock("../obico/agent", () => ({
+  ...jest.requireActual("../obico/agent"),
+  createObicoAgent: jest.fn(() => ({ waitForPairing: mockWaitForPairing })),
+}));
+
 import { app } from "../server";
 import { createPrusaLinkClient } from "../prusalink/client";
 
@@ -96,7 +102,7 @@ describe("GET /api/config", () => {
 describe("POST /api/setup/save", () => {
   const body = {
     name: "Renamed",
-    prusalink: { url: "http://printer2", username: "maker", password: "" },
+    prusalink: { url: "http://printer", username: "maker", password: "" },
     camera: { rtspUrl: "rtsp://printer/live", frameIntervalSeconds: 10 },
     obico: { serverUrl: "http://obico", apiKey: "" },
   };
@@ -107,7 +113,6 @@ describe("POST /api/setup/save", () => {
     const saved = readStored();
     expect(saved.prusalink.password).toBe(PASSWORD);
     expect(saved.obico.apiKey).toBe(API_KEY);
-    expect(saved.prusalink.url).toBe("http://printer2");
     expect(saved.name).toBe("Renamed");
   });
 
@@ -116,7 +121,7 @@ describe("POST /api/setup/save", () => {
       .post("/api/setup/save")
       .send({
         ...body,
-        prusalink: { url: "http://printer2", username: "maker" },
+        prusalink: { url: "http://printer", username: "maker" },
         obico: { serverUrl: "http://obico" },
       });
     expect(res.status).toBe(200);
@@ -135,6 +140,47 @@ describe("POST /api/setup/save", () => {
     expect(res.status).toBe(200);
     expect(readStored().prusalink.password).toBe("new-pass");
     expect(readStored().obico.apiKey).toBe("new-key");
+  });
+
+  it("refuses the stored password when the PrusaLink URL changed", async () => {
+    const res = await request(app)
+      .post("/api/setup/save")
+      .send({ ...body, prusalink: { ...body.prusalink, url: "http://evil" } });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/password is required/i);
+    expect(readStored().prusalink.url).toBe("http://printer");
+  });
+
+  it("refuses the stored password when the username changed", async () => {
+    const res = await request(app)
+      .post("/api/setup/save")
+      .send({ ...body, prusalink: { ...body.prusalink, username: "other" } });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/password is required/i);
+  });
+
+  it("refuses the stored API key when the Obico server URL changed", async () => {
+    const res = await request(app)
+      .post("/api/setup/save")
+      .send({
+        ...body,
+        obico: { serverUrl: "http://other-obico", apiKey: "" },
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/api key is required/i);
+    expect(readStored().obico.serverUrl).toBe("http://obico");
+  });
+
+  it("accepts a changed URL when a new password is sent", async () => {
+    const res = await request(app)
+      .post("/api/setup/save")
+      .send({
+        ...body,
+        prusalink: { url: "http://printer2", username: "maker", password: "p" },
+      });
+    expect(res.status).toBe(200);
+    expect(readStored().prusalink.url).toBe("http://printer2");
+    expect(readStored().obico.apiKey).toBe(API_KEY);
   });
 
   it("rejects empty secrets when nothing is stored", async () => {
@@ -168,11 +214,60 @@ describe("POST /api/wizard/test-prusalink", () => {
     );
   });
 
+  it("refuses the stored password for a foreign URL", async () => {
+    const res = await request(app)
+      .post("/api/wizard/test-prusalink")
+      .send({ url: "http://attacker", username: "maker", password: "" });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/password is required/i);
+    expect(createPrusaLinkClient).not.toHaveBeenCalled();
+  });
+
+  it("refuses the stored password for a different username", async () => {
+    const res = await request(app)
+      .post("/api/wizard/test-prusalink")
+      .send({ url: "http://printer", username: "other" });
+    expect(res.status).toBe(400);
+    expect(createPrusaLinkClient).not.toHaveBeenCalled();
+  });
+
   it("returns 400 when no password is sent and none is stored", async () => {
     fs.rmSync(file);
     const res = await request(app)
       .post("/api/wizard/test-prusalink")
       .send({ url: "http://printer", username: "maker" });
     expect(res.status).toBe(400);
+  });
+});
+
+describe("POST /api/wizard/verify-pairing", () => {
+  const setup = {
+    prusalink: { url: "http://printer", username: "maker", password: "" },
+    camera: { rtspUrl: "rtsp://printer/live", frameIntervalSeconds: 10 },
+    obicoServerUrl: "http://new-obico",
+    code: "123456",
+  };
+
+  it("saves the paired key and does not return it", async () => {
+    mockWaitForPairing.mockResolvedValue("fresh-paired-key");
+    const res = await request(app)
+      .post("/api/wizard/verify-pairing")
+      .send(setup);
+    expect(res.status).toBe(200);
+    expect(res.text).not.toContain("fresh-paired-key");
+    const saved = readStored();
+    expect(saved.obico).toEqual({
+      serverUrl: "http://new-obico",
+      apiKey: "fresh-paired-key",
+    });
+    expect(saved.prusalink.password).toBe(PASSWORD);
+  });
+
+  it("refuses before pairing when the stored password does not apply", async () => {
+    const res = await request(app)
+      .post("/api/wizard/verify-pairing")
+      .send({ ...setup, prusalink: { ...setup.prusalink, url: "http://x" } });
+    expect(res.status).toBe(400);
+    expect(mockWaitForPairing).not.toHaveBeenCalled();
   });
 });

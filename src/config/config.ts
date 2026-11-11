@@ -57,40 +57,15 @@ export function saveConfig(config: Config): void {
 }
 
 export function isConfigured(): boolean {
-  try {
-    const config = loadConfig();
-    return !!(
-      config.prusalink?.url &&
-      config.prusalink?.username &&
-      config.prusalink?.password &&
-      config.camera?.rtspUrl &&
-      config.obico?.serverUrl &&
-      config.obico?.apiKey
-    );
-  } catch {
-    return false;
-  }
-}
-
-/** Shows which secret is stored without revealing it: "***" + last 3 chars for secrets of 8+ chars. */
-export function secretHint(secret: string): string {
-  return secret.length >= 8 ? `***${secret.slice(-3)}` : "***";
-}
-
-export type PublicConfig = Omit<Config, "prusalink" | "obico"> & {
-  prusalink: { url: string; username: string; passwordHint: string };
-  obico: { serverUrl: string; apiKeyHint: string };
-};
-
-/** The config as the API may return it: secrets replaced by hints. */
-export function toPublicConfig(config: Config): PublicConfig {
-  const { password, ...prusalink } = config.prusalink;
-  const { apiKey, ...obico } = config.obico;
-  return {
-    ...config,
-    prusalink: { ...prusalink, passwordHint: secretHint(password ?? "") },
-    obico: { ...obico, apiKeyHint: secretHint(apiKey ?? "") },
-  };
+  const config = tryLoadConfig();
+  return !!(
+    config?.prusalink?.url &&
+    config.prusalink?.username &&
+    config.prusalink?.password &&
+    config.camera?.rtspUrl &&
+    config.obico?.serverUrl &&
+    config.obico?.apiKey
+  );
 }
 
 /** The stored config, or null when none can be read. */

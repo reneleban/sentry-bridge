@@ -1,11 +1,7 @@
 import { Router, Request, Response } from "express";
-import {
-  loadConfig,
-  saveConfig,
-  tryLoadConfig,
-  toPublicConfig,
-  Config,
-} from "../config/config";
+import { loadConfig, Config } from "../config/config";
+import { toPublicConfig, SecretFallbackError } from "../config/secrets";
+import { resolveSetup, saveSetup, SetupError } from "./setup";
 import { createPrusaLinkClient } from "../prusalink/client";
 import { createCamera } from "../camera/camera";
 import { getCameraInstance } from "../camera/registry";
@@ -196,42 +192,19 @@ router.post("/control", async (req: Request, res: Response) => {
 // ── Config save: POST /api/setup/save ─────────────────────────────────────
 
 router.post("/setup/save", (req: Request, res: Response) => {
-  const body = req.body as Partial<Config>;
-  // An empty secret field keeps the stored value; GET /api/config never returns it.
-  const stored = tryLoadConfig();
-  if (body.prusalink && !body.prusalink.password && stored) {
-    body.prusalink.password = stored.prusalink.password;
-  }
-  if (body.obico && !body.obico.apiKey && stored) {
-    body.obico.apiKey = stored.obico.apiKey;
-  }
-
-  if (
-    !body.prusalink?.url ||
-    !body.prusalink?.username ||
-    !body.prusalink?.password ||
-    !body.camera?.rtspUrl ||
-    !body.obico?.serverUrl ||
-    !body.obico?.apiKey
-  ) {
-    res.status(400).json({ message: "All config fields are required" });
-    return;
+  let config: Config;
+  try {
+    config = resolveSetup(req.body as Partial<Config>);
+  } catch (err) {
+    if (err instanceof SetupError || err instanceof SecretFallbackError) {
+      res.status(400).json({ message: err.message });
+      return;
+    }
+    throw err;
   }
 
   try {
-    saveConfig({
-      name: body.name || undefined,
-      prusalink: body.prusalink,
-      camera: {
-        rtspUrl: body.camera.rtspUrl,
-        frameIntervalSeconds: body.camera.frameIntervalSeconds ?? 10,
-      },
-      obico: body.obico,
-      polling: body.polling ?? { statusIntervalMs: 5000 },
-    });
-    startBridge().catch((err) =>
-      console.error("[bridge] Failed to start after config save:", err)
-    );
+    saveSetup(config);
     res.json({ ok: true });
   } catch (err) {
     const message =
