@@ -47,6 +47,8 @@ interface BootCheckReport {
 // first GET may arrive before they finish. Failed GETs back off up to the max.
 const PENDING_POLL_MS = 3_000;
 const MAX_POLL_MS = 60_000;
+// While a check fails, re-run them so the alert clears once the fault is fixed.
+const FAILING_RECHECK_MS = 30_000;
 
 async function fetchReport(
   method: "GET" | "POST",
@@ -101,6 +103,13 @@ export function BootChecksCard() {
     };
   }, [pending, load]);
 
+  const failing = !!report?.results.some((r) => !r.ok);
+  useEffect(() => {
+    if (!failing) return;
+    const timer = setInterval(() => void load("POST"), FAILING_RECHECK_MS);
+    return () => clearInterval(timer);
+  }, [failing, load]);
+
   const recheck = async () => {
     setRechecking(true);
     await load("POST");
@@ -118,8 +127,6 @@ export function BootChecksCard() {
       {t("bootChecks.recheck")}
     </Button>
   );
-
-  const failing = report?.results.some((r) => !r.ok) ?? false;
 
   if (!failing) {
     const running = pending || rechecking;
