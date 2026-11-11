@@ -109,6 +109,8 @@ export default {
     camera: {
       heading: "Kamera",
       no_frame: "Kein Bild verfügbar",
+      badge_live: "{{fps}} fps · letztes Bild vor {{seconds}} s",
+      badge_stalled: "Seit {{seconds}} s kein Bild",
     },
     fileBrowser: {
       title: "G-Code Dateien",
