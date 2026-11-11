@@ -9,7 +9,12 @@ export interface CameraModule {
   /** Graceful ffmpeg teardown: SIGINT, then SIGKILL after timeoutMs. Resolves when proc exits or fallback fires. */
   stopGracefully(timeoutMs: number): Promise<void>;
   onFrame(callback: (frame: Buffer) => void): void;
-  subscribe(id: symbol, callback: (frame: Buffer) => void): void;
+  /** onEnd fires once when stop() or stopGracefully() ends the stream; the subscription is then removed. */
+  subscribe(
+    id: symbol,
+    onFrame: (frame: Buffer) => void,
+    onEnd: () => void
+  ): void;
   unsubscribe(id: symbol): void;
   testStream(timeoutMs?: number): Promise<Buffer>;
   /** Last frame of the running stream, or null if none is newer than maxAgeMs. */
