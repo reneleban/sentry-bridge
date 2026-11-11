@@ -107,7 +107,9 @@ curl -X POST http://localhost:3000/api/bridge/cancel
 curl http://localhost:3000/api/config | jq .
 ```
 
-Returns the current `config.json` contents. The `obico.apiKey` field is returned but is the pairing token — do not share it.
+Returns the current `config.json` contents without secrets. The PrusaLink password and the Obico API key are replaced by `prusalink.passwordHint` and `obico.apiKeyHint`: `***` plus the last 3 characters when the secret has at least 8 characters, otherwise `***`.
+
+When saving via `POST /api/setup/save`, an empty or missing `prusalink.password` / `obico.apiKey` keeps the stored value; a filled one replaces it.
 
 ### Update the config
 

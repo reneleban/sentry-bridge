@@ -86,15 +86,19 @@ paths:
     get:
       tags: [config]
       summary: Read current configuration
-      description: Returns the current config.json contents. Returns 404 if not yet configured.
+      description: >-
+        Returns the current config.json contents with secrets removed: the PrusaLink
+        password and the Obico API key are replaced by `passwordHint` / `apiKeyHint`
+        ("***" plus the last 3 characters for secrets of 8+ characters, otherwise "***").
+        Returns 404 if not yet configured.
       operationId: getConfig
       responses:
         "200":
-          description: Current configuration
+          description: Current configuration (secrets masked)
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Config"
+                $ref: "#/components/schemas/PublicConfig"
         "404":
           description: Not configured
           content:
@@ -106,7 +110,10 @@ paths:
     post:
       tags: [config]
       summary: Save configuration and restart bridge
-      description: Writes config.json and triggers bridge hot-reload. Requires all required fields.
+      description: >-
+        Writes config.json and triggers bridge hot-reload. Requires all required fields,
+        except that an empty or missing `prusalink.password` / `obico.apiKey` keeps the
+        stored value (400 if none is stored).
       operationId: saveConfig
       requestBody:
         required: true
@@ -280,7 +287,9 @@ paths:
     post:
       tags: [wizard]
       summary: Test PrusaLink connection
-      description: Attempts to connect to a PrusaLink instance with the given credentials. Used in wizard step 1.
+      description: >-
+        Attempts to connect to a PrusaLink instance with the given credentials. Used in
+        wizard step 1. An empty or missing password uses the stored one (400 if none is stored).
       operationId: testPrusaLink
       requestBody:
         required: true
@@ -288,7 +297,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [url, username, password]
+              required: [url, username]
               properties:
                 url:
                   type: string
@@ -592,6 +601,38 @@ components:
           type: string
           example: Connection failed
 
+    PublicConfig:
+      type: object
+      description: >-
+        Config as returned by GET /api/config. Same fields as Config, except
+        prusalink.password and obico.apiKey are replaced by hints.
+      properties:
+        name:
+          type: string
+        prusalink:
+          type: object
+          properties:
+            url:
+              type: string
+            username:
+              type: string
+            passwordHint:
+              type: string
+              example: "***ord"
+        camera:
+          type: object
+        obico:
+          type: object
+          properties:
+            serverUrl:
+              type: string
+            apiKeyHint:
+              type: string
+              example: "***0f1"
+        polling:
+          type: object
+        bridgeUrl:
+          type: string
     Config:
       type: object
       required: [prusalink, camera, obico]

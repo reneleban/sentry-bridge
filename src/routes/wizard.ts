@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { createPrusaLinkClient } from "../prusalink/client";
 import { createCamera } from "../camera/camera";
-import { isConfigured } from "../config/config";
+import { isConfigured, tryLoadConfig } from "../config/config";
 import { createObicoAgent } from "../obico/agent";
 import { HttpFetcher, PrusaLinkCommandDispatcher } from "../obico/types";
 
@@ -17,11 +17,15 @@ const noopDispatcher: PrusaLinkCommandDispatcher = {
 const router = Router();
 
 router.post("/test-prusalink", async (req, res) => {
-  const { url, username, password } = req.body as {
+  const { url, username } = req.body as {
     url?: string;
     username?: string;
     password?: string;
   };
+  // An empty password means "use the stored one" (the UI never receives it).
+  const password =
+    (req.body as { password?: string }).password ||
+    tryLoadConfig()?.prusalink.password;
 
   if (!url || !username || !password) {
     res

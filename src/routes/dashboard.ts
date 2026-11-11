@@ -1,5 +1,11 @@
 import { Router, Request, Response } from "express";
-import { loadConfig, saveConfig, Config } from "../config/config";
+import {
+  loadConfig,
+  saveConfig,
+  tryLoadConfig,
+  toPublicConfig,
+  Config,
+} from "../config/config";
 import { createPrusaLinkClient } from "../prusalink/client";
 import { createCamera } from "../camera/camera";
 import { getCameraInstance } from "../camera/registry";
@@ -13,8 +19,7 @@ const router = Router();
 
 router.get("/config", (_req: Request, res: Response) => {
   try {
-    const config = loadConfig();
-    res.json(config);
+    res.json(toPublicConfig(loadConfig()));
   } catch {
     res.status(404).json({ message: "Not configured" });
   }
@@ -192,6 +197,14 @@ router.post("/control", async (req: Request, res: Response) => {
 
 router.post("/setup/save", (req: Request, res: Response) => {
   const body = req.body as Partial<Config>;
+  // An empty secret field keeps the stored value; GET /api/config never returns it.
+  const stored = tryLoadConfig();
+  if (body.prusalink && !body.prusalink.password && stored) {
+    body.prusalink.password = stored.prusalink.password;
+  }
+  if (body.obico && !body.obico.apiKey && stored) {
+    body.obico.apiKey = stored.obico.apiKey;
+  }
 
   if (
     !body.prusalink?.url ||
