@@ -19,6 +19,7 @@ interface ConfigForm {
   prusaLinkUrl: string;
   username: string;
   password: string;
+  passwordHint: string;
   rtspUrl: string;
   frameInterval: number;
   obicoServerUrl: string;
@@ -36,6 +37,7 @@ export function ConfigCard() {
     prusaLinkUrl: "",
     username: "",
     password: "",
+    passwordHint: "",
     rtspUrl: "",
     frameInterval: 10,
     obicoServerUrl: "",
@@ -54,11 +56,12 @@ export function ConfigCard() {
           name: cfg.name ?? "",
           prusaLinkUrl: cfg.prusalink?.url ?? "",
           username: cfg.prusalink?.username ?? "",
-          password: cfg.prusalink?.password ?? "",
+          password: "",
+          passwordHint: cfg.prusalink?.passwordHint ?? "",
           rtspUrl: cfg.camera?.rtspUrl ?? "",
           frameInterval: cfg.camera?.frameIntervalSeconds ?? 10,
           obicoServerUrl: cfg.obico?.serverUrl ?? "",
-          obicoApiKey: cfg.obico?.apiKey ?? "",
+          obicoApiKey: "",
           bridgeUrl: cfg.bridgeUrl ?? "",
         });
       })
@@ -140,6 +143,10 @@ export function ConfigCard() {
             label={t("dashboard.config.password")}
             value={form.password}
             onChange={(e) => patch("password", e.currentTarget.value)}
+            placeholder={form.passwordHint || undefined}
+            description={
+              form.passwordHint ? t("common.secret_keep_hint") : undefined
+            }
           />
           <TextInput
             label={t("dashboard.config.rtsp_url")}

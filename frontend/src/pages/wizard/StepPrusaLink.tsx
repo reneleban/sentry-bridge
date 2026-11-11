@@ -21,7 +21,7 @@ export function StepPrusaLink() {
 
   // Auto-test when pre-filled from existing config
   useEffect(() => {
-    if (data.printerIp && data.password) {
+    if (data.printerIp && (data.password || data.passwordHint)) {
       handleTest();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -76,6 +76,10 @@ export function StepPrusaLink() {
         label={t("wizard.prusalink.password")}
         value={data.password}
         onChange={(e) => setData({ password: e.currentTarget.value })}
+        placeholder={data.passwordHint || undefined}
+        description={
+          data.passwordHint ? t("common.secret_keep_hint") : undefined
+        }
       />
       {status === "ok" && (
         <Alert color="green" icon={<IconCheck size={16} />}>

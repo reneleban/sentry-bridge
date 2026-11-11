@@ -19,11 +19,11 @@ export function StepObico() {
   const { data, setData, nextStep, prevStep } = useWizard();
   const [code, setCode] = useState("");
   const [status, setStatus] = useState<Status>(
-    data.obicoApiKey ? "ok" : "idle"
+    data.obicoApiKey || data.obicoApiKeyHint ? "ok" : "idle"
   );
   const [errorMsg, setErrorMsg] = useState("");
 
-  const alreadyPaired = !!data.obicoApiKey;
+  const alreadyPaired = !!(data.obicoApiKey || data.obicoApiKeyHint);
 
   async function handleVerify() {
     setStatus("verifying");
@@ -116,7 +116,7 @@ export function StepObico() {
             variant="subtle"
             size="xs"
             onClick={() => {
-              setData({ obicoApiKey: "" });
+              setData({ obicoApiKey: "", obicoApiKeyHint: "" });
               setStatus("idle");
             }}
           >
