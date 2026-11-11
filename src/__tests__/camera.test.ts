@@ -644,6 +644,71 @@ describe("Camera", () => {
       ).toBe("Opening 'rtsp://***@10.0.0.1/live'");
     });
 
+    it.each([
+      ["a slash", "pa/ss"],
+      ["a space", "pa ss"],
+      ["a single quote", "pa'ss"],
+      ["a double quote", 'pa"ss'],
+      ["an @", "pa@ss"],
+    ])("redacts a password containing %s", (_, pw) => {
+      expect(formatFfmpegLog(`Opening 'rtsp://user:${pw}@10.0.0.1/live'`)).toBe(
+        "Opening 'rtsp://***@10.0.0.1/live'"
+      );
+    });
+
+    it("redacts two URLs on one line independently", () => {
+      expect(
+        formatFfmpegLog(
+          "rtsp://a:x@10.0.0.1/live -> rtsps://b:y@cam.local:8554/s 'end'"
+        )
+      ).toBe("rtsp://***@10.0.0.1/live -> rtsps://***@cam.local:8554/s 'end'");
+    });
+
+    it("keeps host and path of an unquoted URL followed by an ffmpeg tag", () => {
+      expect(
+        formatFfmpegLog("rtsp://u:p@10.0.0.1/live [h264 @ 0x55] error")
+      ).toBe("rtsp://***@10.0.0.1/live [h264 @ 0x55] error");
+    });
+
+    it("leaves a URL without credentials unchanged", () => {
+      const line = "Opening rtsp://10.0.0.1/live [h264 @ 0x55] error";
+      expect(formatFfmpegLog(line)).toBe(line);
+    });
+
+    it("redacts an IPv6 host URL", () => {
+      expect(formatFfmpegLog("rtsp://u:p@[fe80::1]:554/live")).toBe(
+        "rtsp://***@[fe80::1]:554/live"
+      );
+    });
+
+    it("flushes an over-long stderr line without a newline", async () => {
+      const long = "x".repeat(9000);
+      mockSpawn.mockReturnValue(
+        makeMockProcess({ stderrData: [long, "TAIL"], exitCode: 1 })
+      );
+      const err = await createCamera(config)
+        .testStream()
+        .catch((e: Error) => e);
+      expect((err as Error).message).toContain("TAIL");
+      expect((err as Error).message).not.toContain(long);
+    });
+
+    it("includes the pending stderr line in the testStream timeout error", async () => {
+      jest.useFakeTimers();
+      const proc = makeMockProcess({});
+      mockSpawn.mockReturnValue(proc);
+      const promise = createCamera(config).testStream(1000);
+      proc.stderr!.emit(
+        "data",
+        "Connection to rtsp://u:s3cret@10.0.0.1/live hangs"
+      );
+      jest.advanceTimersByTime(1001);
+      const err = (await promise.catch((e: Error) => e)) as Error;
+      expect(err.message).toMatch(/timed out/);
+      expect(err.message).toContain("rtsp://***@10.0.0.1/live hangs");
+      expect(err.message).not.toContain("s3cret");
+    });
+
     it("redacts passwords containing '/' or spaces", () => {
       const out = formatFfmpegLog(
         "[rtsp @ 0x1] Opening 'rtsp://user:pa/ss wo@rd@10.0.0.1/live' failed"

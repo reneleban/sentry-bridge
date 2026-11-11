@@ -398,15 +398,19 @@ export function createObicoAgent(
       new Blob([new Uint8Array(jpeg)], { type: "image/jpeg" }),
       "pic.jpg"
     );
-    const res = await http.fetch(
-      apiUrl(config.serverUrl, "/api/v1/octo/pic/"),
-      {
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), FRAME_UPLOAD_TIMEOUT_MS);
+    let res: Awaited<ReturnType<HttpFetcher["fetch"]>>;
+    try {
+      res = await http.fetch(apiUrl(config.serverUrl, "/api/v1/octo/pic/"), {
         method: "POST",
         headers: { Authorization: `Token ${config.apiKey}` },
         body: form,
-        signal: AbortSignal.timeout(FRAME_UPLOAD_TIMEOUT_MS),
-      }
-    );
+        signal: abort.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       const detail = body.trim().slice(0, FRAME_UPLOAD_ERROR_BODY_CHARS);
@@ -569,6 +573,15 @@ export function createObicoAgent(
     async sendFrame(jpeg: Buffer): Promise<void> {
       try {
         await uploadFrame(jpeg);
+        if (frameUploadFailures >= FRAME_UPLOAD_FAILURE_THRESHOLD) {
+          // The health monitor has no info level; WARN keeps the recovery
+          // next to the failure it resolves.
+          healthMonitor.pushError(
+            "obico_ws",
+            `Frame upload recovered after ${frameUploadFailures} failures`,
+            ErrorSeverity.WARN
+          );
+        }
         frameUploadFailures = 0;
       } catch (err) {
         if (++frameUploadFailures === FRAME_UPLOAD_FAILURE_THRESHOLD) {

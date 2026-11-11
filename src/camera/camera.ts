@@ -7,11 +7,16 @@ import { resilienceConfig } from "../lib/env-config";
 import { healthMonitor, circuitBreakerRegistry } from "../lib/health";
 import { HealthState, ErrorSeverity } from "../lib/health-monitor";
 
-// ffmpeg prints its input URL, password included. The greedy match runs to
-// the last "@" on the line, so a password with an "@", "/" or a space is also
-// hidden. Over-redacting is the safe failure mode.
+// ffmpeg prints its input URL, password included. Only the userinfo is
+// replaced: it ends at the first "@" that is followed by a host (IPv4,
+// [IPv6] or hostname) and then a port, path, quote, whitespace or line end.
+// A password may thus contain "/", spaces, quotes or "@", and host, path and
+// any ffmpeg tags after the URL (e.g. "[h264 @ 0x55]") stay readable.
+const RTSP_USERINFO =
+  /(rtsps?:\/\/)[^\r\n]*?@(?=(?:\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?:[:/\s'"]|$))/gim;
+
 function redactRtspCredentials(text: string): string {
-  return text.replace(/(rtsps?:\/\/)[^'"\r\n]*@/gi, "$1***@");
+  return text.replace(RTSP_USERINFO, "$1***@");
 }
 
 /** Single exit point for ffmpeg output that reaches logs or error messages. */
@@ -20,6 +25,9 @@ export function formatFfmpegLog(text: string): string {
 }
 
 const STDERR_TAIL_LINES = 20;
+// A stderr "line" longer than this is flushed as is, so output without
+// newlines cannot grow the buffer without bound.
+const STDERR_MAX_LINE_CHARS = 8 * 1024;
 
 interface StderrTail {
   lines(): string[];
@@ -30,22 +38,29 @@ type StderrLineHandler = (line: string) => void;
 
 /**
  * Splits a process's stderr into whole lines, so a URL split across two
- * chunks is redacted as one. The pending partial line is flushed on close.
+ * chunks is redacted as one. The pending partial line is flushed on close,
+ * on the returned flush(), or once it exceeds STDERR_MAX_LINE_CHARS.
  */
-function readStderrLines(child: ChildProcess, onLine: StderrLineHandler): void {
+function readStderrLines(
+  child: ChildProcess,
+  onLine: StderrLineHandler
+): () => void {
   let partial = "";
   const emit = (line: string) => {
     if (line.trim() !== "") onLine(redactRtspCredentials(line));
+  };
+  const flush = () => {
+    emit(partial);
+    partial = "";
   };
   child.stderr!.on("data", (d: Buffer | string) => {
     const parts = (partial + String(d)).split(/\r?\n|\r/);
     partial = parts.pop()!;
     parts.forEach(emit);
+    if (partial.length > STDERR_MAX_LINE_CHARS) flush();
   });
-  child.on("close", () => {
-    emit(partial);
-    partial = "";
-  });
+  child.on("close", flush);
+  return flush;
 }
 
 /** Keeps the last few redacted stderr lines of a process for diagnostics. */
@@ -119,10 +134,10 @@ export function createCamera(config: CameraConfig): CameraModule {
   function spawnFfmpeg(
     args: string[],
     onStderrLine: StderrLineHandler = () => {}
-  ): ChildProcess {
+  ): ChildProcess & { flushStderr: () => void } {
     const child = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
-    readStderrLines(child, onStderrLine);
-    return child;
+    const flushStderr = readStderrLines(child, onStderrLine);
+    return Object.assign(child, { flushStderr });
   }
 
   // Clears the tail once logged, so a watchdog kill and the exit that follows
@@ -491,7 +506,16 @@ export function createCamera(config: CameraConfig): CameraModule {
           if (settled) return;
           settled = true;
           terminate(p);
-          reject(new Error(`testStream timed out after ${timeoutMs}ms`));
+          p.flushStderr();
+          const lastLine = stderrTail.lines().pop();
+          const detail = lastLine ? `: ${lastLine}` : "";
+          reject(
+            new Error(
+              formatFfmpegLog(
+                `testStream timed out after ${timeoutMs}ms${detail}`
+              )
+            )
+          );
         }, timeoutMs);
 
         const chunks: Buffer[] = [];
