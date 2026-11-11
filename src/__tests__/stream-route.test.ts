@@ -1,6 +1,6 @@
 import http from "http";
 import { AddressInfo } from "net";
-import { CameraModule } from "../camera/types";
+import { CameraModule, FrameSubscriber } from "../camera/types";
 
 let mockCamera: CameraModule | null = null;
 jest.mock("../camera/registry", () => ({
@@ -10,21 +10,40 @@ jest.mock("../camera/registry", () => ({
 
 import { app } from "../server";
 
-type Sub = { onFrame: (f: Buffer) => void; onEnd: () => void };
+class FakeCamera implements CameraModule {
+  readonly subs = new Map<symbol, FrameSubscriber>();
 
-function fakeCamera(): CameraModule & { subs: Map<symbol, Sub>; end(): void } {
-  const subs = new Map<symbol, Sub>();
-  return {
-    subs,
-    subscribe: (id: symbol, onFrame: (f: Buffer) => void, onEnd: () => void) =>
-      subs.set(id, { onFrame, onEnd }),
-    unsubscribe: (id: symbol) => subs.delete(id),
-    end() {
-      const all = [...subs.values()];
-      subs.clear();
-      all.forEach((s) => s.onEnd());
-    },
-  } as unknown as CameraModule & { subs: Map<symbol, Sub>; end(): void };
+  subscribe(id: symbol, subscriber: FrameSubscriber): void {
+    this.subs.set(id, subscriber);
+  }
+  unsubscribe(id: symbol): void {
+    this.subs.delete(id);
+  }
+  /** Ends the stream like stop() does. */
+  end(): void {
+    const all = [...this.subs.values()];
+    this.subs.clear();
+    all.forEach((s) => s.onEnd());
+  }
+
+  // Not used by /stream
+  start(): void {}
+  stop(): void {}
+  async stopGracefully(): Promise<void> {}
+  onFrame(): void {}
+  async testStream(): Promise<Buffer> {
+    return Buffer.alloc(0);
+  }
+  latestFrame(): Buffer | null {
+    return null;
+  }
+  startRtpStream(): void {}
+  stopRtpStream(): void {}
+  onRtpRecover(): void {}
+}
+
+function fakeCamera(): FakeCamera {
+  return new FakeCamera();
 }
 
 const frame = Buffer.from([0xff, 0xd8, 0x01, 0xff, 0xd9]);
@@ -49,7 +68,7 @@ describe("GET /stream", () => {
     });
   }
 
-  function waitForSubscriber(cam: { subs: Map<symbol, Sub> }): Promise<void> {
+  function waitForSubscriber(cam: FakeCamera): Promise<void> {
     return new Promise((resolve) => {
       const check = () => (cam.subs.size > 0 ? resolve() : setImmediate(check));
       check();

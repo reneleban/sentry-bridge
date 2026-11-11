@@ -175,7 +175,7 @@ describe("Camera", () => {
       const camera = createCamera(config);
       camera.start();
       const onEnd = jest.fn();
-      camera.subscribe(Symbol("a"), jest.fn(), onEnd);
+      camera.subscribe(Symbol("a"), { onFrame: jest.fn(), onEnd: onEnd });
       camera.stop();
       expect(onEnd).toHaveBeenCalledTimes(1);
     });
@@ -184,7 +184,7 @@ describe("Camera", () => {
       mockSpawn.mockReturnValue(makeMockProcess({}));
       const camera = createCamera(config);
       const onEnd = jest.fn();
-      camera.subscribe(Symbol("a"), jest.fn(), onEnd);
+      camera.subscribe(Symbol("a"), { onFrame: jest.fn(), onEnd: onEnd });
       await camera.stopGracefully(10);
       expect(onEnd).toHaveBeenCalledTimes(1);
     });
@@ -194,7 +194,7 @@ describe("Camera", () => {
       mockSpawn.mockReturnValue(proc);
       const camera = createCamera(config);
       const onFrame = jest.fn();
-      camera.subscribe(Symbol("a"), onFrame, jest.fn());
+      camera.subscribe(Symbol("a"), { onFrame, onEnd: jest.fn() });
       camera.stop();
       camera.start();
       proc.stdout!.emit("data", fakeJpeg);
@@ -207,7 +207,7 @@ describe("Camera", () => {
       const camera = createCamera(config);
       const id = Symbol("a");
       const onEnd = jest.fn();
-      camera.subscribe(id, jest.fn(), onEnd);
+      camera.subscribe(id, { onFrame: jest.fn(), onEnd: onEnd });
       camera.unsubscribe(id);
       camera.stop();
       expect(onEnd).not.toHaveBeenCalled();

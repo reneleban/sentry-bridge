@@ -1,5 +1,5 @@
 import { spawn, ChildProcess } from "child_process";
-import { CameraConfig, CameraModule } from "./types";
+import { CameraConfig, CameraModule, FrameSubscriber } from "./types";
 import { createCircuitBreaker } from "../lib/circuit-breaker";
 import { calculateDelay } from "../lib/retry";
 import { terminate } from "../lib/terminate";
@@ -56,10 +56,7 @@ export function createCamera(config: CameraConfig): CameraModule {
   let proc: ChildProcess | null = null;
   let rtpProc: ChildProcess | null = null;
   let frameCallback: ((frame: Buffer) => void) | null = null;
-  const subscribers = new Map<
-    symbol,
-    { onFrame: (frame: Buffer) => void; onEnd: () => void }
-  >();
+  const subscribers = new Map<symbol, FrameSubscriber>();
 
   let mjpegStopped = false;
   let mjpegGeneration = 0;
@@ -395,12 +392,8 @@ export function createCamera(config: CameraConfig): CameraModule {
       });
     },
 
-    subscribe(
-      id: symbol,
-      onFrame: (frame: Buffer) => void,
-      onEnd: () => void
-    ): void {
-      subscribers.set(id, { onFrame, onEnd });
+    subscribe(id: symbol, subscriber: FrameSubscriber): void {
+      subscribers.set(id, subscriber);
     },
 
     unsubscribe(id: symbol): void {
