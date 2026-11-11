@@ -121,6 +121,23 @@ describe("checkRequest — cross-site write check", () => {
     );
   });
 
+  it("rejects writes behind a proxy that rewrites Host; allows them when Host is passed through", () => {
+    const origin = "https://bridge.example.com";
+    const allowedHosts = ["bridge.example.com"];
+    expect(
+      checkRequest(
+        { method: "POST", host: "192.168.1.5:3000", origin },
+        allowedHosts
+      ).allowed
+    ).toBe(false);
+    expect(
+      checkRequest(
+        { method: "POST", host: "bridge.example.com", origin },
+        allowedHosts
+      ).allowed
+    ).toBe(true);
+  });
+
   it.each(["GET", "HEAD", "OPTIONS"])("does not check Origin on %s", (m) => {
     expect(
       checkRequest(

@@ -119,6 +119,29 @@ Start with the dashboard: at startup the bridge checks PrusaLink (reachable, cre
 
 ---
 
+## 8. Behind a reverse proxy: page loads, but saving / pause / upload answers 403 "Cross-origin request rejected"
+
+**Symptom:** Through a reverse proxy the UI loads and shows live data, but every action that changes something (saving the config, pause/resume/cancel, uploading or deleting a file) fails with `403` and `Cross-origin request rejected`.
+
+**Cause:** For write requests the bridge compares the browser's `Origin` (the public name, e.g. `https://bridge.example.com`) with the `Host` header it receives. Some proxies replace `Host` with the upstream address — nginx `proxy_pass` does this by default (`Host` becomes `$proxy_host`, e.g. `192.168.1.5:3000`). The two no longer match, so writes are rejected while reads keep working.
+
+**Fix:**
+
+1. Make the proxy pass the original `Host` header through. nginx:
+
+   ```nginx
+   location / {
+       proxy_pass http://192.168.1.5:3000;
+       proxy_set_header Host $host;
+   }
+   ```
+
+   Caddy (`reverse_proxy`) and Traefik (`passHostHeader`, default `true`) keep the original `Host` by default.
+
+2. Add the public name to `ALLOWED_HOSTS`, e.g. `ALLOWED_HOSTS=bridge.example.com` (see [section 7](#7-403-host-not-allowed-when-opening-the-bridge-via-a-dns-name)).
+
+---
+
 ## Not listed here?
 
 If your issue is not covered above, check the [container logs](#3-obico-pairing-never-confirms--wizard-step-3-waits-indefinitely) first, then open an issue at [github.com/reneleban/sentry-bridge](https://github.com/reneleban/sentry-bridge).
