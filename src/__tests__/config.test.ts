@@ -1,7 +1,13 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { loadConfig, saveConfig, isConfigured, configEmitter, Config } from "../config/config";
+import {
+  loadConfig,
+  saveConfig,
+  isConfigured,
+  configEmitter,
+  Config,
+} from "../config/config";
 
 const validConfig = {
   prusalink: {
@@ -120,6 +126,36 @@ describe("configEmitter", () => {
       expect(received).toHaveLength(0);
     } finally {
       configEmitter.off("config-changed", handler);
+    }
+  });
+});
+
+describe("saveConfig() file mode", () => {
+  const modeOf = (f: string) => fs.statSync(f).mode & 0o777;
+
+  it("creates the config file with mode 0600", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "obico-mode-"));
+    const filePath = path.join(dir, "config.json");
+    process.env.CONFIG_PATH = filePath;
+    try {
+      saveConfig(validConfig as Config);
+      expect(modeOf(filePath)).toBe(0o600);
+    } finally {
+      fs.rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("tightens the mode of an existing file", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "obico-mode-"));
+    const filePath = path.join(dir, "config.json");
+    fs.writeFileSync(filePath, "{}", { mode: 0o644 });
+    fs.chmodSync(filePath, 0o644);
+    process.env.CONFIG_PATH = filePath;
+    try {
+      saveConfig(validConfig as Config);
+      expect(modeOf(filePath)).toBe(0o600);
+    } finally {
+      fs.rmSync(dir, { recursive: true });
     }
   });
 });

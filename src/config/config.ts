@@ -52,7 +52,13 @@ export function loadConfig(): Config {
 
 export function saveConfig(config: Config): void {
   const filePath = configPath();
-  fs.writeFileSync(filePath, JSON.stringify(config, null, 2), "utf-8");
+  // The file holds secrets: owner-only. `mode` applies only on creation, so
+  // tighten an existing file too.
+  fs.writeFileSync(filePath, JSON.stringify(config, null, 2), {
+    encoding: "utf-8",
+    mode: 0o600,
+  });
+  fs.chmodSync(filePath, 0o600);
   configEmitter.emit("config-changed", config);
 }
 
