@@ -79,20 +79,18 @@ export function StepCamera() {
       )}
       {status === "error" && (
         <Alert color="red" icon={<IconX size={16} />}>
-          <Stack gap="xs">
-            <Text size="sm">{errorMsg}</Text>
-            <Text size="sm" fw={600}>
-              {t("wizard.camera.rtsp_hint")}
-            </Text>
-          </Stack>
+          <Text size="sm">{errorMsg}</Text>
         </Alert>
       )}
-      {status !== "error" && (
-        <Text c="dimmed" size="xs">
-          <IconInfoCircle size={12} style={{ verticalAlign: "middle" }} />{" "}
-          {t("wizard.camera.rtsp_hint")}
-        </Text>
-      )}
+      {/* Emphasised when the test failed, a dimmed tip otherwise. */}
+      <Text
+        size={status === "error" ? "sm" : "xs"}
+        fw={status === "error" ? 600 : undefined}
+        c={status === "error" ? undefined : "dimmed"}
+      >
+        <IconInfoCircle size={12} style={{ verticalAlign: "middle" }} />{" "}
+        {t("wizard.camera.rtsp_hint")}
+      </Text>
       {status === "testing" && <Skeleton height={180} radius="md" />}
       {previewUrl && (
         <Image src={previewUrl} alt={t("wizard.camera.preview")} radius="md" />

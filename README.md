@@ -172,7 +172,7 @@ These are intentional product decisions, not bugs:
 
 - Symptom: Wizard step 2 blocks, no frame preview
 - Confirm printer has a camera (Buddy3D board) and RTSP is enabled
-- In Prusa Connect, open the camera settings and set **Streaming** to **RTSP** (options: Disable / RTSP / WebRTC). Re-check after every firmware update — newer firmware may switch it back to WebRTC
+- In Prusa Connect, open the printer details → **Camera** → camera settings and set the field **Streaming** to **RTSP** (options: Disable / RTSP / WebRTC). Re-check after every firmware update — newer firmware may switch it back to WebRTC
 - Test from host: `ffmpeg -rtsp_transport tcp -i rtsp://<printer-ip>/live -frames:v 1 -f image2 test.jpg`
 - Check LAN: printer and Docker host on the same subnet, no VLAN isolation
 

@@ -33,7 +33,7 @@ export default {
       success: "Stream erreichbar",
       error: "Stream nicht erreichbar",
       rtsp_hint:
-        "Öffne in Prusa Connect die Kamera-Einstellungen und setze Streaming auf RTSP (nicht WebRTC oder Disable). Firmware-Updates können die Einstellung auf WebRTC zurücksetzen.",
+        "Öffne in Prusa Connect die Druckerdetails → Camera → Kamera-Einstellungen und setze das Feld Streaming auf RTSP (Optionen: Disable / RTSP / WebRTC). Firmware-Updates können die Einstellung auf WebRTC zurücksetzen.",
       preview: "Vorschau",
       next: "Weiter",
       back: "Zurück",
