@@ -108,6 +108,8 @@ export default {
     camera: {
       heading: "Camera",
       no_frame: "No frame available",
+      badge_live: "{{fps}} fps · last frame {{seconds}} s ago",
+      badge_stalled: "No frame for {{seconds}} s",
     },
     fileBrowser: {
       title: "G-code Files",
