@@ -323,7 +323,7 @@ export function createPrusaLinkClient(
           );
           if (!res.ok) throw new Error(`file not indexed yet: ${res.status}`);
         },
-        { maxAttempts: 10, baseDelayMs: 500, maxDelayMs: 500, jitter: false }
+        { maxAttempts: 10, baseDelayMs: 500, maxDelayMs: 500 }
       );
       const res = await request(
         "POST",

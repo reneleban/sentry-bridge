@@ -28,7 +28,7 @@ Transient errors (network glitches, timeouts) are retried using `src/lib/retry.t
 | Base delay | 1 000 ms  | `RETRY_BASE_DELAY_MS` |
 | Max delay  | 30 000 ms | `RETRY_MAX_DELAY_MS`  |
 
-Backoff formula: `min(baseDelay * 2^attempt, maxDelay)` with jitter.
+Backoff formula: `min(baseDelay * 2^attempt, maxDelay)`, without jitter (one container per printer, so no thundering herd to spread out).
 
 ### Obico WebSocket Reconnect
 
