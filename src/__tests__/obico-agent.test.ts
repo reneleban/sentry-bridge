@@ -1135,6 +1135,54 @@ describe("Print passthru commands", () => {
     );
   });
 
+  it("#121: replies with an error to an unknown passthru target", (done) => {
+    sendAndCollect(
+      { passthru: { target: "octoprint", func: "list", ref: "U1" } },
+      (received) => {
+        const ack = received.find((m) => m.includes('"ref":"U1"'));
+        expect(ack).toBeDefined();
+        expect(JSON.parse(ack!).passthru.error).toBe(
+          "unsupported: octoprint.list"
+        );
+      },
+      done
+    );
+  });
+
+  it("#121: replies with an error to an unknown func on a known target", (done) => {
+    sendAndCollect(
+      { passthru: { target: "Printer", func: "home", ref: "U2" } },
+      (received) => {
+        const ack = received.find((m) => m.includes('"ref":"U2"'));
+        expect(ack).toBeDefined();
+        expect(JSON.parse(ack!).passthru.error).toBe(
+          "unsupported: Printer.home"
+        );
+      },
+      done
+    );
+  });
+
+  it("#121: logs target and func of unsupported passthru, not args", (done) => {
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+    sendAndCollect(
+      {
+        passthru: {
+          target: "file_operations",
+          func: "nope",
+          args: ["secret_arg"],
+        },
+      },
+      () => {
+        const logged = warnSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+        warnSpy.mockRestore();
+        expect(logged).toContain("unsupported passthru file_operations.nope");
+        expect(logged).not.toContain("secret_arg");
+      },
+      done
+    );
+  });
+
   it("#113: shows a WARN when commands[] resume rejects", (done) => {
     (mockDispatcher.resume as jest.Mock).mockRejectedValueOnce(
       new Error("offline")
