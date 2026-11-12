@@ -471,6 +471,23 @@ describe("sendFrame()", () => {
     expect(calls).toHaveLength(1);
   });
 
+  it("stops calling Obico once the frame breaker opens", async () => {
+    mockFetch.mockResolvedValue(mockResponse(500));
+    const agent = createObicoAgent(
+      { serverUrl: "http://obico.local", apiKey: "test-key" },
+      mockHttp,
+      mockDispatcher
+    );
+    for (let i = 0; i < 5; i++) {
+      await agent.sendFrame(Buffer.from([0xff, 0xd9])).catch(() => {});
+    }
+    mockFetch.mockClear();
+    await expect(agent.sendFrame(Buffer.from([0xff, 0xd9]))).rejects.toThrow(
+      /circuit breaker is open/i
+    );
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it("files upload warnings under obico_frames, not the WebSocket key", async () => {
     const { healthMonitor } = await import("../lib/health");
     const spy = jest.spyOn(healthMonitor, "pushError");

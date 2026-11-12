@@ -48,6 +48,10 @@ export function createObicoAgent(
 ): ObicoAgent {
   const cb = createCircuitBreaker(resilienceConfig.circuitBreaker);
   circuitBreakerRegistry.set("obico_ws", cb);
+  // Own breaker so a failing upload endpoint neither hammers Obico nor trips
+  // the WebSocket breaker.
+  const frameCb = createCircuitBreaker(resilienceConfig.circuitBreaker);
+  circuitBreakerRegistry.set("obico_frames", frameCb);
 
   let ws: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -574,7 +578,7 @@ export function createObicoAgent(
 
     async sendFrame(jpeg: Buffer): Promise<void> {
       try {
-        await uploadFrame(jpeg);
+        await frameCb.execute(() => uploadFrame(jpeg));
         if (frameUploadFailures >= FRAME_UPLOAD_FAILURE_THRESHOLD) {
           // The health monitor has no info level; WARN keeps the recovery
           // next to the failure it resolves.
