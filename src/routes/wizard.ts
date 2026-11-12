@@ -16,6 +16,7 @@ const noopDispatcher: PrusaLinkCommandDispatcher = {
   startPrint: () => Promise.resolve(),
   uploadFile: () => Promise.resolve(),
   listFiles: () => Promise.resolve([]),
+  getFileSize: () => Promise.resolve(0),
 };
 
 const router = Router();

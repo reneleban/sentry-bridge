@@ -138,6 +138,8 @@ Merges the provided object into the current config and saves it. SentryBridge ho
 
 SentryBridge exposes OctoPrint-compatible file endpoints that Obico uses for its file browser integration. You can also use them directly.
 
+Obico's file dialog lists all USB files, newest first. PrusaLink's file list has no sizes, so SentryBridge looks up each file's size once and caches it in memory; the first listing after a restart is slower.
+
 ### List files on the printer
 
 ```bash

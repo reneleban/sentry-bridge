@@ -304,6 +304,27 @@ describe("PrusaLinkClient", () => {
     });
   });
 
+  describe("getFileSize()", () => {
+    it("returns size from the per-file endpoint with an encoded name", async () => {
+      mockFetch.mockResolvedValue(
+        mockResponse(200, { name: "TEST~1.BGC", size: 920694 })
+      );
+      const client = createPrusaLinkClient(config, fetcher);
+      await expect(client.getFileSize("TEST~1 #.BGC")).resolves.toBe(920694);
+      expect(mockFetch.mock.calls[0][0]).toContain(
+        "/api/v1/files/usb/TEST~1%20%23.BGC"
+      );
+    });
+
+    it("throws on non-2xx", async () => {
+      mockFetch.mockResolvedValue(mockResponse(404));
+      const client = createPrusaLinkClient(config, fetcher);
+      await expect(client.getFileSize("X.BGC")).rejects.toThrow(
+        /getFileSize failed/
+      );
+    });
+  });
+
   describe("listFiles()", () => {
     const filesBody = {
       children: [

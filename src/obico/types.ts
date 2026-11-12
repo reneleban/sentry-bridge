@@ -93,6 +93,7 @@ export interface PrusaLinkCommandDispatcher {
   startPrint(filename: string): Promise<void>;
   uploadFile(filename: string, data: Buffer): Promise<void>;
   listFiles(): Promise<FileEntry[]>;
+  getFileSize(filename: string): Promise<number>;
 }
 
 export interface ObicoAgent {

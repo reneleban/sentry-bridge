@@ -287,6 +287,15 @@ export function createPrusaLinkClient(
         }));
     },
 
+    // The USB file list has no sizes; the per-file endpoint does.
+    async getFileSize(filename: string): Promise<number> {
+      const { res, body } = await getJson(
+        `/api/v1/files/usb/${encodeURIComponent(filename)}`
+      );
+      if (!res.ok) throw new Error(`getFileSize failed: ${res.status}`);
+      return body.size ?? 0;
+    },
+
     async uploadFile(filename: string, data: Buffer): Promise<void> {
       const res = await request(
         "PUT",
