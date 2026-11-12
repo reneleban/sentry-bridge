@@ -3,7 +3,11 @@ import { reconnectComponent, ReconnectTarget } from "../bridge";
 
 const router = Router();
 
-const ALLOWED: ReadonlyArray<ReconnectTarget> = ["prusalink", "obico", "camera"];
+const ALLOWED: ReadonlyArray<ReconnectTarget> = [
+  "prusalink",
+  "obico",
+  "camera",
+];
 
 router.post("/reconnect", async (req: Request, res: Response) => {
   const component = (req.body as { component?: string })?.component;
