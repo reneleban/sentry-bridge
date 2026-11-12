@@ -15,7 +15,7 @@ import {
   PrintStartStore,
   createMemoryPrintStartStore,
 } from "./print-start-store";
-import { createCircuitBreaker } from "../lib/circuit-breaker";
+import { createCircuitBreaker, CircuitState } from "../lib/circuit-breaker";
 import { calculateDelay } from "../lib/retry";
 import { resilienceConfig } from "../lib/env-config";
 import { healthMonitor, circuitBreakerRegistry } from "../lib/health";
@@ -577,8 +577,13 @@ export function createObicoAgent(
     },
 
     async sendFrame(jpeg: Buffer): Promise<void> {
+      // Breaker-open rejections are not upload attempts: don't count them.
+      if (frameCb.state === CircuitState.OPEN) {
+        return frameCb.execute(() => uploadFrame(jpeg));
+      }
       try {
         await frameCb.execute(() => uploadFrame(jpeg));
+        healthMonitor.setState("obico_frames", HealthState.HEALTHY);
         if (frameUploadFailures >= FRAME_UPLOAD_FAILURE_THRESHOLD) {
           // The health monitor has no info level; WARN keeps the recovery
           // next to the failure it resolves.
@@ -597,6 +602,9 @@ export function createObicoAgent(
             `Frame upload failing: ${reason}`,
             ErrorSeverity.WARN
           );
+        }
+        if ((frameCb.state as CircuitState) === CircuitState.OPEN) {
+          healthMonitor.setState("obico_frames", HealthState.DEGRADED);
         }
         throw err;
       }

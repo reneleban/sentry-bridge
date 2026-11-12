@@ -68,4 +68,15 @@ describe("registerFrameForwarding()", () => {
     await emit();
     expect(sendFrame).toHaveBeenCalledTimes(2);
   });
+
+  it("uploads the next frame after a rejected upload", async () => {
+    const sendFrame = jest
+      .fn()
+      .mockRejectedValueOnce(new Error("HTTP 500"))
+      .mockResolvedValueOnce(undefined);
+    const { emit } = setup(sendFrame);
+    await emit();
+    await emit();
+    expect(sendFrame).toHaveBeenCalledTimes(2);
+  });
 });

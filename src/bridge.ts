@@ -291,6 +291,11 @@ export async function reconnectComponent(
   const cbName = CB_NAME_MAP[component];
   const cb = circuitBreakerRegistry.get(cbName);
   if (cb) cb.reset();
+  if (component === "obico") {
+    // Frame uploads have their own breaker; a manual reconnect retries them too.
+    circuitBreakerRegistry.get("obico_frames")?.reset();
+    healthMonitor.setState("obico_frames", HealthState.HEALTHY);
+  }
 
   healthMonitor.setState(cbName, HealthState.RECOVERING);
   healthMonitor.incrementRestarts(cbName);

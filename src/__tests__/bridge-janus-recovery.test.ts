@@ -144,6 +144,23 @@ describe("bridge — Janus that becomes available after a failed first start", (
     expect(janusManager.onAvailable).toHaveBeenCalledTimes(1);
   });
 
+  it("resets the frame upload breaker on a manual Obico reconnect", async () => {
+    const { bridge } = await startUnavailable();
+    const { circuitBreakerRegistry } = await import("../lib/health");
+    const { createCircuitBreaker, CircuitState } =
+      await import("../lib/circuit-breaker");
+    const frameCb = createCircuitBreaker({
+      threshold: 1,
+      resetTimeoutMs: 60_000,
+    });
+    await frameCb.execute(() => Promise.reject(new Error("x"))).catch(() => {});
+    circuitBreakerRegistry.set("obico_frames", frameCb);
+
+    await bridge.reconnectComponent("obico");
+
+    expect(frameCb.state).toBe(CircuitState.CLOSED);
+  });
+
   it("stops the RTP stream on shutdown", async () => {
     const { bridge, camera } = await startUnavailable();
     await bridge.stopBridge(server);
