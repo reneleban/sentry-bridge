@@ -370,7 +370,13 @@ export function createObicoAgent(
           !entry.displayName.toLowerCase().includes(filter)
         )
           continue;
-        local[entry.name] = { ...toOctoPrintFile(entry), path: entry.name };
+        // Obico's dialog displays `name`, so use the long display name there;
+        // `path` stays the PrusaLink name that select_file sends back.
+        local[entry.name] = {
+          ...toOctoPrintFile(entry),
+          name: entry.displayName || entry.name,
+          path: entry.name,
+        };
       }
       return { local };
     });

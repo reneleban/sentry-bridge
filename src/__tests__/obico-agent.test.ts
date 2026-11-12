@@ -1221,8 +1221,10 @@ describe("Print passthru commands", () => {
           "BENCHY~1.BGC",
           "CUBE~1.BGC",
         ]);
+        // Obico's dialog shows `name`, so it carries the long display name;
+        // `path` keeps the PrusaLink name used by select_file.
         expect(reply.ret.local["BENCHY~1.BGC"]).toMatchObject({
-          name: "BENCHY~1.BGC",
+          name: "benchy.bgcode",
           display: "benchy.bgcode",
           path: "BENCHY~1.BGC",
           type: "machinecode",
