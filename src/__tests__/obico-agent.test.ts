@@ -1230,7 +1230,8 @@ describe("Print passthru commands", () => {
           display: "benchy.bgcode",
           path: "BENCHY~1.BGC",
           type: "machinecode",
-          size: 4321,
+          // Unknown until the background lookup finishes.
+          size: 0,
           date: 1767225600,
         });
       },
@@ -1265,31 +1266,6 @@ describe("Print passthru commands", () => {
     date: new Date(Date.UTC(2026, 0, i + 1)).toISOString(),
   }));
 
-  it("#122: list_files returns all files newest first with looked-up sizes", (done) => {
-    (mockDispatcher.listFiles as jest.Mock).mockResolvedValueOnce(manyFiles);
-    (mockDispatcher.getFileSize as jest.Mock).mockClear();
-    (mockDispatcher.getFileSize as jest.Mock).mockImplementation(
-      async (name: string) => {
-        if (name === "F5.BGC") throw new Error("getFileInfo failed: 500");
-        return name.length * 100;
-      }
-    );
-    sendAndCollect(
-      { passthru: { target: "_file_manager", func: "list_files", ref: "F4" } },
-      (received) => {
-        const local = replyFor(received, "F4").ret.local;
-        expect(Object.keys(local)).toEqual(
-          [11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0].map((i) => `F${i}.BGC`)
-        );
-        expect(local["F11.BGC"].size).toBe(700);
-        expect(local["F5.BGC"].size).toBe(0);
-        expect(mockDispatcher.getFileSize).toHaveBeenCalledTimes(12);
-        (mockDispatcher.getFileSize as jest.Mock).mockResolvedValue(4321);
-      },
-      done
-    );
-  });
-
   it("#122: select_file accepts a listed file", (done) => {
     (mockDispatcher.listFiles as jest.Mock).mockResolvedValueOnce(manyFiles);
     (mockDispatcher.startPrint as jest.Mock).mockClear();
@@ -1311,15 +1287,13 @@ describe("Print passthru commands", () => {
     );
   });
 
-  const listTwice = (
-    second: typeof manyFiles,
-    check: () => void,
-    done: jest.DoneCallback
-  ) => {
-    const first = manyFiles.slice(0, 2);
+  it("#122: list_files answers at once and reports sizes looked up in the background", (done) => {
+    const files = manyFiles
+      .slice(0, 2)
+      .map((f) => ({ ...f, name: `BG${f.name}` }));
     (mockDispatcher.listFiles as jest.Mock)
-      .mockResolvedValueOnce(first)
-      .mockResolvedValueOnce(second);
+      .mockResolvedValueOnce(files)
+      .mockResolvedValueOnce(files);
     (mockDispatcher.getFileSize as jest.Mock).mockClear();
     const msg = (ref: string) =>
       JSON.stringify({
@@ -1327,13 +1301,17 @@ describe("Print passthru commands", () => {
       });
     const agent = makeAgent();
     agent.connect();
+    const received: string[] = [];
     wss.on("connection", (ws) => {
+      ws.on("message", (data) => received.push(data.toString()));
       setTimeout(() => ws.send(msg("C1")), 50);
       setTimeout(() => ws.send(msg("C2")), 150);
     });
     setTimeout(() => {
       try {
-        check();
+        expect(replyFor(received, "C1").ret.local["BGF1.BGC"].size).toBe(0);
+        expect(replyFor(received, "C2").ret.local["BGF1.BGC"].size).toBe(4321);
+        expect(mockDispatcher.getFileSize).toHaveBeenCalledTimes(2);
         done();
       } catch (err) {
         done(err);
@@ -1341,29 +1319,6 @@ describe("Print passthru commands", () => {
         agent.disconnect();
       }
     }, 300);
-  };
-
-  it("#122: a second list_files reuses cached sizes", (done) => {
-    listTwice(
-      manyFiles.slice(0, 2),
-      () => expect(mockDispatcher.getFileSize).toHaveBeenCalledTimes(2),
-      done
-    );
-  });
-
-  it("#122: a changed file date re-fetches its size", (done) => {
-    const changed = [
-      { ...manyFiles[0], date: "2026-06-01T00:00:00.000Z" },
-      manyFiles[1],
-    ];
-    listTwice(
-      changed,
-      () => {
-        expect(mockDispatcher.getFileSize).toHaveBeenCalledTimes(3);
-        expect(mockDispatcher.getFileSize).toHaveBeenLastCalledWith("F0.BGC");
-      },
-      done
-    );
   });
 
   it("#122: list_files replies with an error when PrusaLink fails", (done) => {

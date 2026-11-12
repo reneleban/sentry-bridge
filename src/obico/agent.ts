@@ -11,7 +11,8 @@ import {
   buildStatusMessage,
   isIdleState,
 } from "./types";
-import { PrinterStatus, JobInfo, FileEntry } from "../prusalink/types";
+import { PrinterStatus, JobInfo } from "../prusalink/types";
+import { fileSizeCache } from "../prusalink/file-size-cache";
 import {
   PrintStartStore,
   createMemoryPrintStartStore,
@@ -40,7 +41,6 @@ const FRAME_UPLOAD_TIMEOUT_MS = 15_000;
 const FRAME_UPLOAD_ERROR_BODY_CHARS = 200;
 // Consecutive failures before the health monitor hears about it.
 const FRAME_UPLOAD_FAILURE_THRESHOLD = 3;
-const FILE_SIZE_LOOKUP_CONCURRENCY = 3;
 
 class PassthruError extends Error {}
 
@@ -356,43 +356,6 @@ export function createObicoAgent(
   // substring match on name or display name. `path` is the bare file name
   // (not PrusaLink's "/usb/..." path) because Obico sends it back unchanged
   // as the select_file argument, which is matched against the file list.
-  // PrusaLink's file list has no sizes, so each file costs one request.
-  // Sizes are cached in memory by name + date; failed lookups (size 0) are
-  // not cached, entries for files no longer listed are dropped.
-  const fileSizeCache = new Map<string, { date: string; size: number }>();
-
-  async function lookupFileSizes(
-    entries: FileEntry[],
-    allNames: Set<string>
-  ): Promise<number[]> {
-    for (const name of fileSizeCache.keys()) {
-      if (!allNames.has(name)) fileSizeCache.delete(name);
-    }
-    const sizes = entries.map((e) => {
-      const cached = fileSizeCache.get(e.name);
-      return cached && cached.date === e.date ? cached.size : -1;
-    });
-    const missing = entries.filter((_, i) => sizes[i] < 0);
-    let next = 0;
-    const worker = async () => {
-      while (next < missing.length) {
-        const entry = missing[next++];
-        try {
-          const size = await dispatcher.getFileSize(entry.name);
-          fileSizeCache.set(entry.name, { date: entry.date, size });
-        } catch {
-          // left uncached: retried on the next listing
-        }
-      }
-    };
-    await Promise.all(
-      Array.from({ length: FILE_SIZE_LOOKUP_CONCURRENCY }, worker)
-    );
-    return entries.map((e, i) =>
-      sizes[i] >= 0 ? sizes[i] : (fileSizeCache.get(e.name)?.size ?? 0)
-    );
-  }
-
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function handleListFiles(passthru: any): Promise<void> {
     return answerFilePassthru(passthru.ref, "list_files", async () => {
@@ -414,18 +377,18 @@ export function createObicoAgent(
         .sort(
           (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
         );
-      const sizes = await lookupFileSizes(
-        entries,
-        new Set(all.map((e) => e.name))
-      );
-      entries.forEach((entry, i) => {
+      // Sizes come from the shared cache; unknown ones are looked up in the
+      // background and reported as 0 (Obico expects a number).
+      const known = fileSizeCache.get(all, (n) => dispatcher.getFileSize(n));
+      const sizeOf = new Map(all.map((e, i) => [e.name, known[i] ?? 0]));
+      entries.forEach((entry) => {
         // Obico's dialog displays `name`, so use the long display name there;
         // `path` stays the PrusaLink name that select_file sends back.
         local[entry.name] = {
           ...toOctoPrintFile(entry),
           name: entry.displayName || entry.name,
           path: entry.name,
-          size: sizes[i],
+          size: sizeOf.get(entry.name) ?? 0,
         };
       });
       return { local };

@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import { loadConfig } from "../config/config";
 import { createPrusaLinkClient } from "../prusalink/client";
 import { toOctoPrintFile } from "../prusalink/octoprint";
+import { fileSizeCache } from "../prusalink/file-size-cache";
 import multer from "multer";
 import { readFile, unlink } from "node:fs/promises";
 import { basename } from "node:path";
@@ -27,7 +28,13 @@ router.get("/", async (_req: Request, res: Response) => {
       password: config.prusalink.password,
     });
     const entries = await client.listFiles();
-    const files = entries.map(toOctoPrintFile);
+    // #122: size is null until the background lookup reports it (SSE
+    // `file-size` event on /api/status/stream).
+    const sizes = fileSizeCache.get(entries, (n) => client.getFileSize(n));
+    const files = entries.map((e, i) => ({
+      ...toOctoPrintFile(e),
+      size: sizes[i],
+    }));
     res.json({ files, free: 0 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to list files";

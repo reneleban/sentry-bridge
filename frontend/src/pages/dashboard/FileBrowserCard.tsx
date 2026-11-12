@@ -18,6 +18,8 @@ interface GcodeFile {
   display: string;
   path: string;
   date: number;
+  // null until the bridge has looked it up (#122, SSE `file-size`).
+  size: number | null;
 }
 
 interface Props {
@@ -28,6 +30,13 @@ function makeSuggestedName(filename: string): string {
   const dot = filename.lastIndexOf(".");
   if (dot === -1) return `${filename}_1`;
   return `${filename.slice(0, dot)}_1${filename.slice(dot)}`;
+}
+
+function formatSize(size: number | null): string {
+  if (size === null) return "–";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function formatDate(ts: number): string {
@@ -102,6 +111,25 @@ export function FileBrowserCard({ status }: Props) {
   useEffect(() => {
     loadFiles();
   }, [loadFiles]);
+
+  // #122: sizes are looked up in the background and arrive via SSE.
+  useEffect(() => {
+    const es = new EventSource("/api/status/stream");
+    es.addEventListener("file-size", (e) => {
+      try {
+        const { name, size } = JSON.parse(e.data) as {
+          name: string;
+          size: number;
+        };
+        setFiles((prev) =>
+          prev.map((f) => (f.name === name ? { ...f, size } : f))
+        );
+      } catch {
+        // ignore malformed events
+      }
+    });
+    return () => es.close();
+  }, []);
 
   async function handleUpload(file: File) {
     setUploading(true);
@@ -332,6 +360,7 @@ export function FileBrowserCard({ status }: Props) {
                   {t("dashboard.fileBrowser.col_date")}
                   {indicator("date")}
                 </Table.Th>
+                <Table.Th>{t("dashboard.fileBrowser.col_size")}</Table.Th>
                 <Table.Th />
               </Table.Tr>
             </Table.Thead>
@@ -346,6 +375,11 @@ export function FileBrowserCard({ status }: Props) {
                   <Table.Td>
                     <Text size="sm" c="dimmed">
                       {formatDate(file.date)}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="sm" c="dimmed">
+                      {formatSize(file.size)}
                     </Text>
                   </Table.Td>
                   <Table.Td>

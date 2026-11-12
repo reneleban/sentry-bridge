@@ -22,6 +22,7 @@ const mockListFiles = jest.fn();
 const mockUploadFile = jest.fn();
 const mockDeleteFile = jest.fn();
 const mockStartPrint = jest.fn();
+const mockGetFileSize = jest.fn();
 
 jest.mock("../prusalink/client", () => ({
   createPrusaLinkClient: jest.fn(() => ({
@@ -29,6 +30,7 @@ jest.mock("../prusalink/client", () => ({
     uploadFile: mockUploadFile,
     deleteFile: mockDeleteFile,
     startPrint: mockStartPrint,
+    getFileSize: mockGetFileSize,
   })),
 }));
 
@@ -56,6 +58,25 @@ beforeEach(() => {
 });
 
 describe("GET /api/files (FILES-01)", () => {
+  it("#122: fills sizes from the shared cache in the background", async () => {
+    mockListFiles.mockResolvedValue([
+      {
+        name: "SIZED~1.BGC",
+        displayName: "sized.bgcode",
+        path: "/usb/SIZED~1.BGC",
+        size: 0,
+        date: "2025-01-15T10:30:00.000Z",
+      },
+    ]);
+    mockGetFileSize.mockResolvedValue(920694);
+    const first = await request(createTestApp()).get("/api/files");
+    expect(first.body.files[0].size).toBeNull();
+    await new Promise((r) => setImmediate(r));
+    const second = await request(createTestApp()).get("/api/files");
+    expect(second.body.files[0].size).toBe(920694);
+    expect(mockGetFileSize).toHaveBeenCalledTimes(1);
+  });
+
   it("returns OctoPrint-format file list", async () => {
     mockListFiles.mockResolvedValue([
       {
@@ -78,7 +99,8 @@ describe("GET /api/files (FILES-01)", () => {
     expect(f.path).toBe("BENCHY~1.GCO");
     expect(f.type).toBe("machinecode");
     expect(f.typePath).toEqual(["machinecode", "gcode"]);
-    expect(f.size).toBe(12345);
+    // Unknown until the background lookup finishes (#122).
+    expect(f.size).toBeNull();
     expect(typeof f.date).toBe("number");
     expect(f.date).toBe(
       Math.floor(new Date("2025-01-15T10:30:00.000Z").getTime() / 1000)

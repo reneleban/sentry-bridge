@@ -138,7 +138,7 @@ Merges the provided object into the current config and saves it. SentryBridge ho
 
 SentryBridge exposes OctoPrint-compatible file endpoints that Obico uses for its file browser integration. You can also use them directly.
 
-Obico's file dialog lists all USB files, newest first. PrusaLink's file list has no sizes, so SentryBridge looks up each file's size once and caches it in memory; the first listing after a restart is slower.
+Obico's file dialog lists all USB files, newest first. PrusaLink's file list has no sizes, so SentryBridge looks up each file's size once in the background (warmed at startup) and caches it in memory. Listings never wait for this: until a size is known, `GET /api/files` returns `"size": null` (Obico gets `0`), and the dashboard shows "–". Each size that becomes known is pushed on `/api/status/stream` as `event: file-size` with `{"name": ..., "size": ...}`.
 
 ### List files on the printer
 
