@@ -579,7 +579,7 @@ export function createObicoAgent(
           // The health monitor has no info level; WARN keeps the recovery
           // next to the failure it resolves.
           healthMonitor.pushError(
-            "obico_ws",
+            "obico_frames",
             `Frame upload recovered after ${frameUploadFailures} failures`,
             ErrorSeverity.WARN
           );
@@ -589,7 +589,7 @@ export function createObicoAgent(
         if (++frameUploadFailures === FRAME_UPLOAD_FAILURE_THRESHOLD) {
           const reason = err instanceof Error ? err.message : String(err);
           healthMonitor.pushError(
-            "obico_ws",
+            "obico_frames",
             `Frame upload failing: ${reason}`,
             ErrorSeverity.WARN
           );

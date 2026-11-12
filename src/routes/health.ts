@@ -8,6 +8,7 @@ const COMPONENTS: ComponentName[] = [
   "prusalink",
   "camera",
   "obico_ws",
+  "obico_frames",
   "janus",
   "rtp_stream",
   "janus_relay",

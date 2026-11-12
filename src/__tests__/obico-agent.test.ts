@@ -429,7 +429,7 @@ describe("sendFrame()", () => {
     await agent.sendFrame(Buffer.from([0xff, 0xd9]));
     await agent.sendFrame(Buffer.from([0xff, 0xd9]));
     const msgs = spy.mock.calls
-      .filter(([c]) => c === "obico_ws")
+      .filter(([c]) => c === "obico_frames")
       .map(([, m]) => m);
     spy.mockRestore();
     expect(msgs.filter((m) => /recovered/i.test(m))).toHaveLength(1);
@@ -447,7 +447,7 @@ describe("sendFrame()", () => {
     await agent.sendFrame(Buffer.from([0xff, 0xd9])).catch(() => {});
     mockFetch.mockResolvedValue(mockResponse(200));
     await agent.sendFrame(Buffer.from([0xff, 0xd9]));
-    const calls = spy.mock.calls.filter(([c]) => c === "obico_ws");
+    const calls = spy.mock.calls.filter(([c]) => c === "obico_frames");
     spy.mockRestore();
     expect(calls).toHaveLength(0);
   });
@@ -465,10 +465,27 @@ describe("sendFrame()", () => {
       await agent.sendFrame(Buffer.from([0xff, 0xd9])).catch(() => {});
     }
     const calls = spy.mock.calls.filter(
-      ([c, m]) => c === "obico_ws" && /frame upload/i.test(m)
+      ([c, m]) => c === "obico_frames" && /frame upload/i.test(m)
     );
     spy.mockRestore();
     expect(calls).toHaveLength(1);
+  });
+
+  it("files upload warnings under obico_frames, not the WebSocket key", async () => {
+    const { healthMonitor } = await import("../lib/health");
+    const spy = jest.spyOn(healthMonitor, "pushError");
+    mockFetch.mockResolvedValue(mockResponse(500));
+    const agent = createObicoAgent(
+      { serverUrl: "http://obico.local", apiKey: "test-key" },
+      mockHttp,
+      mockDispatcher
+    );
+    for (let i = 0; i < 3; i++) {
+      await agent.sendFrame(Buffer.from([0xff, 0xd9])).catch(() => {});
+    }
+    const wsCalls = spy.mock.calls.filter(([c]) => c === "obico_ws");
+    spy.mockRestore();
+    expect(wsCalls).toHaveLength(0);
   });
 });
 

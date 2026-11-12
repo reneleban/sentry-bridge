@@ -109,6 +109,7 @@ const COMPONENT_LABELS: Record<string, string> = {
   prusalink: "PrusaLink",
   camera: "Kamera",
   obico_ws: "Obico WS",
+  obico_frames: "Obico Frames",
   janus: "Janus",
   rtp_stream: "RTP Stream",
   janus_relay: "Janus Relay",
@@ -239,7 +240,7 @@ const MAIN_ROWS: ReadonlyArray<{
   },
 ];
 
-const ADVANCED_ROWS = ["janus", "rtp_stream", "janus_relay"];
+const ADVANCED_ROWS = ["obico_frames", "janus", "rtp_stream", "janus_relay"];
 
 function statusLabelKey(state: HealthState): string {
   switch (state) {

@@ -14,7 +14,13 @@ export enum ErrorSeverity {
 }
 
 export type ComponentName =
-  "prusalink" | "camera" | "obico_ws" | "janus" | "rtp_stream" | "janus_relay";
+  | "prusalink"
+  | "camera"
+  | "obico_ws"
+  | "obico_frames"
+  | "janus"
+  | "rtp_stream"
+  | "janus_relay";
 
 // Camera stream broken while printer is reachable warrants a restart.
 // PrusaLink DOWN (printer off) and obico_ws DOWN (reconnect handles it) do not.
@@ -84,6 +90,7 @@ export function createHealthMonitor(opts: HealthMonitorOptions): HealthMonitor {
     prusalink: HealthState.HEALTHY,
     camera: HealthState.HEALTHY,
     obico_ws: HealthState.HEALTHY,
+    obico_frames: HealthState.HEALTHY,
     janus: HealthState.HEALTHY,
     rtp_stream: HealthState.HEALTHY,
     janus_relay: HealthState.HEALTHY,
@@ -93,6 +100,7 @@ export function createHealthMonitor(opts: HealthMonitorOptions): HealthMonitor {
     prusalink: Date.now(),
     camera: Date.now(),
     obico_ws: Date.now(),
+    obico_frames: Date.now(),
     janus: Date.now(),
     rtp_stream: Date.now(),
     janus_relay: Date.now(),
@@ -102,6 +110,7 @@ export function createHealthMonitor(opts: HealthMonitorOptions): HealthMonitor {
     prusalink: 0,
     camera: 0,
     obico_ws: 0,
+    obico_frames: 0,
     janus: 0,
     rtp_stream: 0,
     janus_relay: 0,
@@ -111,6 +120,7 @@ export function createHealthMonitor(opts: HealthMonitorOptions): HealthMonitor {
     prusalink: [],
     camera: [],
     obico_ws: [],
+    obico_frames: [],
     janus: [],
     rtp_stream: [],
     janus_relay: [],
