@@ -15,7 +15,7 @@ import {
   PrintStartStore,
   createMemoryPrintStartStore,
 } from "./print-start-store";
-import { createCircuitBreaker } from "../lib/circuit-breaker";
+import { createCircuitBreaker, CircuitState } from "../lib/circuit-breaker";
 import { calculateDelay } from "../lib/retry";
 import { resilienceConfig } from "../lib/env-config";
 import { healthMonitor, circuitBreakerRegistry } from "../lib/health";
@@ -48,6 +48,10 @@ export function createObicoAgent(
 ): ObicoAgent {
   const cb = createCircuitBreaker(resilienceConfig.circuitBreaker);
   circuitBreakerRegistry.set("obico_ws", cb);
+  // Own breaker so a failing upload endpoint neither hammers Obico nor trips
+  // the WebSocket breaker.
+  const frameCb = createCircuitBreaker(resilienceConfig.circuitBreaker);
+  circuitBreakerRegistry.set("obico_frames", frameCb);
 
   let ws: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -573,13 +577,18 @@ export function createObicoAgent(
     },
 
     async sendFrame(jpeg: Buffer): Promise<void> {
+      // Breaker-open rejections are not upload attempts: don't count them.
+      if (frameCb.state === CircuitState.OPEN) {
+        return frameCb.execute(() => uploadFrame(jpeg));
+      }
       try {
-        await uploadFrame(jpeg);
+        await frameCb.execute(() => uploadFrame(jpeg));
+        healthMonitor.setState("obico_frames", HealthState.HEALTHY);
         if (frameUploadFailures >= FRAME_UPLOAD_FAILURE_THRESHOLD) {
           // The health monitor has no info level; WARN keeps the recovery
           // next to the failure it resolves.
           healthMonitor.pushError(
-            "obico_ws",
+            "obico_frames",
             `Frame upload recovered after ${frameUploadFailures} failures`,
             ErrorSeverity.WARN
           );
@@ -589,10 +598,13 @@ export function createObicoAgent(
         if (++frameUploadFailures === FRAME_UPLOAD_FAILURE_THRESHOLD) {
           const reason = err instanceof Error ? err.message : String(err);
           healthMonitor.pushError(
-            "obico_ws",
+            "obico_frames",
             `Frame upload failing: ${reason}`,
             ErrorSeverity.WARN
           );
+        }
+        if ((frameCb.state as CircuitState) === CircuitState.OPEN) {
+          healthMonitor.setState("obico_frames", HealthState.DEGRADED);
         }
         throw err;
       }

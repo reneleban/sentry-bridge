@@ -51,4 +51,32 @@ describe("registerFrameForwarding()", () => {
     expect(warn).toHaveBeenCalledTimes(2);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("recovered"));
   });
+
+  it("skips frames while an upload is still in flight", async () => {
+    let finish: () => void = () => {};
+    const sendFrame = jest
+      .fn()
+      .mockImplementationOnce(
+        () => new Promise<void>((resolve) => (finish = resolve))
+      );
+    const { emit } = setup(sendFrame);
+    const first = emit();
+    await emit();
+    expect(sendFrame).toHaveBeenCalledTimes(1);
+    finish();
+    await first;
+    await emit();
+    expect(sendFrame).toHaveBeenCalledTimes(2);
+  });
+
+  it("uploads the next frame after a rejected upload", async () => {
+    const sendFrame = jest
+      .fn()
+      .mockRejectedValueOnce(new Error("HTTP 500"))
+      .mockResolvedValueOnce(undefined);
+    const { emit } = setup(sendFrame);
+    await emit();
+    await emit();
+    expect(sendFrame).toHaveBeenCalledTimes(2);
+  });
 });

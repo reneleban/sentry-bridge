@@ -9,6 +9,9 @@ import { PrinterStatus, JobInfo } from "../prusalink/types";
 import { buildStatusMessage } from "../obico/types";
 import { PrintStart, PrintStartStore } from "../obico/print-start-store";
 import { Readable } from "node:stream";
+import { resilienceConfig } from "../lib/env-config";
+import { CircuitState } from "../lib/circuit-breaker";
+import { HealthState } from "../lib/health-monitor";
 
 // Mock node:fs so download tests don't touch the real filesystem
 jest.mock("node:fs", () => ({
@@ -429,7 +432,7 @@ describe("sendFrame()", () => {
     await agent.sendFrame(Buffer.from([0xff, 0xd9]));
     await agent.sendFrame(Buffer.from([0xff, 0xd9]));
     const msgs = spy.mock.calls
-      .filter(([c]) => c === "obico_ws")
+      .filter(([c]) => c === "obico_frames")
       .map(([, m]) => m);
     spy.mockRestore();
     expect(msgs.filter((m) => /recovered/i.test(m))).toHaveLength(1);
@@ -447,7 +450,7 @@ describe("sendFrame()", () => {
     await agent.sendFrame(Buffer.from([0xff, 0xd9])).catch(() => {});
     mockFetch.mockResolvedValue(mockResponse(200));
     await agent.sendFrame(Buffer.from([0xff, 0xd9]));
-    const calls = spy.mock.calls.filter(([c]) => c === "obico_ws");
+    const calls = spy.mock.calls.filter(([c]) => c === "obico_frames");
     spy.mockRestore();
     expect(calls).toHaveLength(0);
   });
@@ -465,10 +468,132 @@ describe("sendFrame()", () => {
       await agent.sendFrame(Buffer.from([0xff, 0xd9])).catch(() => {});
     }
     const calls = spy.mock.calls.filter(
-      ([c, m]) => c === "obico_ws" && /frame upload/i.test(m)
+      ([c, m]) => c === "obico_frames" && /frame upload/i.test(m)
     );
     spy.mockRestore();
     expect(calls).toHaveLength(1);
+  });
+
+  it("stops calling Obico once the frame breaker opens", async () => {
+    mockFetch.mockResolvedValue(mockResponse(500));
+    const agent = createObicoAgent(
+      { serverUrl: "http://obico.local", apiKey: "test-key" },
+      mockHttp,
+      mockDispatcher
+    );
+    for (let i = 0; i < resilienceConfig.circuitBreaker.threshold; i++) {
+      await agent.sendFrame(Buffer.from([0xff, 0xd9])).catch(() => {});
+    }
+    mockFetch.mockClear();
+    await expect(agent.sendFrame(Buffer.from([0xff, 0xd9]))).rejects.toThrow(
+      /circuit breaker is open/i
+    );
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("files upload warnings under obico_frames, not the WebSocket key", async () => {
+    const { healthMonitor } = await import("../lib/health");
+    const spy = jest.spyOn(healthMonitor, "pushError");
+    mockFetch.mockResolvedValue(mockResponse(500));
+    const agent = createObicoAgent(
+      { serverUrl: "http://obico.local", apiKey: "test-key" },
+      mockHttp,
+      mockDispatcher
+    );
+    for (let i = 0; i < 3; i++) {
+      await agent.sendFrame(Buffer.from([0xff, 0xd9])).catch(() => {});
+    }
+    const wsCalls = spy.mock.calls.filter(([c]) => c === "obico_ws");
+    spy.mockRestore();
+    expect(wsCalls).toHaveLength(0);
+  });
+
+  describe("frame circuit breaker", () => {
+    const threshold = resilienceConfig.circuitBreaker.threshold;
+    const frame = Buffer.from([0xff, 0xd9]);
+    const newAgent = () =>
+      createObicoAgent(
+        { serverUrl: "http://obico.local", apiKey: "test-key" },
+        mockHttp,
+        mockDispatcher
+      );
+    const failUntilOpen = async (agent: ReturnType<typeof newAgent>) => {
+      mockFetch.mockResolvedValue(mockResponse(500));
+      for (let i = 0; i < threshold; i++) {
+        await agent.sendFrame(frame).catch(() => {});
+      }
+    };
+
+    afterEach(async () => {
+      jest.useRealTimers();
+      jest.restoreAllMocks();
+      const { healthMonitor } = await import("../lib/health");
+      healthMonitor.setState("obico_frames", HealthState.HEALTHY);
+    });
+
+    it("closes again after a successful half-open trial upload", async () => {
+      jest.useFakeTimers();
+      const agent = newAgent();
+      await failUntilOpen(agent);
+      await jest.advanceTimersByTimeAsync(
+        resilienceConfig.circuitBreaker.resetTimeoutMs
+      );
+      mockFetch.mockClear();
+      mockFetch.mockResolvedValue(mockResponse(200));
+      await agent.sendFrame(frame);
+      await agent.sendFrame(frame);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("leaves the obico_ws breaker closed", async () => {
+      const { circuitBreakerRegistry } = await import("../lib/health");
+      const agent = newAgent();
+      await failUntilOpen(agent);
+      expect(circuitBreakerRegistry.get("obico_ws")?.state).toBe(
+        CircuitState.CLOSED
+      );
+    });
+
+    it("marks obico_frames DEGRADED when open and HEALTHY on recovery", async () => {
+      jest.useFakeTimers();
+      const { healthMonitor } = await import("../lib/health");
+      const agent = newAgent();
+      await failUntilOpen(agent);
+      expect(healthMonitor.getComponentStats("obico_frames").state).toBe(
+        HealthState.DEGRADED
+      );
+      await jest.advanceTimersByTimeAsync(
+        resilienceConfig.circuitBreaker.resetTimeoutMs
+      );
+      mockFetch.mockResolvedValue(mockResponse(200));
+      await agent.sendFrame(frame);
+      expect(healthMonitor.getComponentStats("obico_frames").state).toBe(
+        HealthState.HEALTHY
+      );
+    });
+
+    it("does not count breaker-open rejections as upload failures", async () => {
+      jest.useFakeTimers();
+      const { healthMonitor } = await import("../lib/health");
+      const spy = jest.spyOn(healthMonitor, "pushError");
+      const agent = newAgent();
+      await failUntilOpen(agent);
+      for (let i = 0; i < 3; i++) {
+        await agent.sendFrame(frame).catch(() => {});
+      }
+      await jest.advanceTimersByTimeAsync(
+        resilienceConfig.circuitBreaker.resetTimeoutMs
+      );
+      mockFetch.mockResolvedValue(mockResponse(200));
+      await agent.sendFrame(frame);
+      const msgs = spy.mock.calls
+        .filter(([c]) => c === "obico_frames")
+        .map(([, m]) => m);
+      expect(msgs).toContain(
+        `Frame upload recovered after ${threshold} failures`
+      );
+      expect(msgs.some((m) => /circuit breaker/i.test(m))).toBe(false);
+    });
   });
 });
 

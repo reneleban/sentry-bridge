@@ -168,10 +168,13 @@ export function registerFrameForwarding(
 ): void {
   let lastUpload = 0;
   let uploadFailing = false;
+  let uploading = false;
   camera.onFrame(async (frame) => {
     const now = Date.now();
-    if (now - lastUpload < uploadIntervalMs) return;
+    // A slow upload (up to its timeout) must not overlap with the next one.
+    if (uploading || now - lastUpload < uploadIntervalMs) return;
     lastUpload = now;
+    uploading = true;
     try {
       await agent.sendFrame(frame);
       if (uploadFailing) console.log("[bridge] Frame uploads recovered");
@@ -183,6 +186,8 @@ export function registerFrameForwarding(
         console.warn(`[bridge] Frame upload failing: ${reason}`);
       }
       uploadFailing = true;
+    } finally {
+      uploading = false;
     }
   });
 }
@@ -286,6 +291,11 @@ export async function reconnectComponent(
   const cbName = CB_NAME_MAP[component];
   const cb = circuitBreakerRegistry.get(cbName);
   if (cb) cb.reset();
+  if (component === "obico") {
+    // Frame uploads have their own breaker; a manual reconnect retries them too.
+    circuitBreakerRegistry.get("obico_frames")?.reset();
+    healthMonitor.setState("obico_frames", HealthState.HEALTHY);
+  }
 
   healthMonitor.setState(cbName, HealthState.RECOVERING);
   healthMonitor.incrementRestarts(cbName);
