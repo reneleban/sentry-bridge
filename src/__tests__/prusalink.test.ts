@@ -469,6 +469,16 @@ describe("PrusaLinkClient", () => {
       );
     });
 
+    it("#122: URL-encodes the filename (spaces, ?, %)", async () => {
+      mockFetch.mockResolvedValue(mockResponse(204));
+      const client = createPrusaLinkClient(config, fetcher);
+      await client.deleteFile("my part?%2e.gcode");
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://prusa.local/api/v1/files/usb/my%20part%3F%252e.gcode",
+        expect.objectContaining({ method: "DELETE" })
+      );
+    });
+
     it("wirft bei non-2xx", async () => {
       mockFetch.mockResolvedValue(mockResponse(500));
       const client = createPrusaLinkClient(config, fetcher);

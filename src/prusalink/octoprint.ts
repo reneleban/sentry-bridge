@@ -1,6 +1,8 @@
 import type { FileEntry } from "./types";
 
-// OctoPrint-compatible file entry built from a PrusaLink file.
+// OctoPrint-compatible file entry built from a PrusaLink file. `path` is the
+// PrusaLink path here; the Obico passthru (agent.ts) overrides it with the bare
+// name, because Obico sends `path` back unchanged as the select_file argument.
 export interface OctoPrintFile {
   name: string;
   display: string;

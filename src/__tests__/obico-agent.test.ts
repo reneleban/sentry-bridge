@@ -1260,7 +1260,7 @@ describe("Print passthru commands", () => {
     sendAndCollect(
       { passthru: { target: "_file_manager", func: "list_files", ref: "F3" } },
       (received) => {
-        expect(replyFor(received, "F3").error).toBe("listFiles failed: 500");
+        expect(replyFor(received, "F3").error).toBe("printer request failed");
       },
       done
     );
@@ -1286,21 +1286,45 @@ describe("Print passthru commands", () => {
     );
   });
 
-  it("#122: select_file rejects path traversal without printing", (done) => {
-    (mockDispatcher.startPrint as jest.Mock).mockClear();
+  it.each([["../etc/passwd"], ["%2e%2e"], ["a?b"], ["a\\b"], ["UNKNOWN.BGC"]])(
+    "#122: select_file rejects %s (not in file list) without printing",
+    (name, done) => {
+      (mockDispatcher.startPrint as jest.Mock).mockClear();
+      sendAndCollect(
+        {
+          passthru: {
+            target: "_printer",
+            func: "select_file",
+            args: [name, null],
+            kwargs: { printAfterSelect: "true" },
+            ref: "S2",
+          },
+        },
+        (received) => {
+          expect(mockDispatcher.startPrint).not.toHaveBeenCalled();
+          expect(replyFor(received, "S2").error).toBe("file not found");
+        },
+        done as jest.DoneCallback
+      );
+    }
+  );
+
+  it("#122: select_file replies with a generic error when startPrint fails", (done) => {
+    (mockDispatcher.startPrint as jest.Mock).mockRejectedValueOnce(
+      new Error("startPrint failed: 409 secret detail")
+    );
     sendAndCollect(
       {
         passthru: {
           target: "_printer",
           func: "select_file",
-          args: ["../etc/passwd", null],
-          kwargs: { printAfterSelect: "true" },
-          ref: "S2",
+          args: ["CUBE~1.BGC", null],
+          kwargs: { printAfterSelect: true },
+          ref: "S4",
         },
       },
       (received) => {
-        expect(mockDispatcher.startPrint).not.toHaveBeenCalled();
-        expect(replyFor(received, "S2").error).toMatch(/invalid path/);
+        expect(replyFor(received, "S4").error).toBe("printer request failed");
       },
       done
     );

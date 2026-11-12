@@ -1,8 +1,8 @@
-import WebSocket from "ws";
-import { OctoPrintFile, toOctoPrintFile } from "../prusalink/octoprint";
 import { createReadStream, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as pathJoin, basename as pathBasename } from "node:path";
+import WebSocket from "ws";
+import { OctoPrintFile, toOctoPrintFile } from "../prusalink/octoprint";
 import {
   ObicoAgent,
   ObicoAgentConfig,
@@ -40,6 +40,8 @@ const FRAME_UPLOAD_TIMEOUT_MS = 15_000;
 const FRAME_UPLOAD_ERROR_BODY_CHARS = 200;
 // Consecutive failures before the health monitor hears about it.
 const FRAME_UPLOAD_FAILURE_THRESHOLD = 3;
+
+class PassthruError extends Error {}
 
 export function createObicoAgent(
   config: ObicoAgentConfig,
@@ -328,13 +330,34 @@ export function createObicoAgent(
     }
   }
 
+  // #122: Runs a file passthru handler and answers its ref. Client errors
+  // (thrown as PassthruError) are sent verbatim; anything else is logged
+  // locally and answered generically so PrusaLink details don't leak.
+  async function answerFilePassthru(
+    ref: string,
+    name: string,
+    run: () => Promise<unknown>
+  ): Promise<void> {
+    try {
+      sendPassthruAck(ref, await run());
+    } catch (err) {
+      if (err instanceof PassthruError) {
+        sendPassthruError(ref, err.message);
+        return;
+      }
+      console.warn(`[obico] passthru ${name} failed:`, err);
+      sendPassthruError(ref, "printer request failed");
+    }
+  }
+
   // #122: Obico's "OctoPrint" file dialog. PrusaLink USB storage is flat, so
   // `path`/`recursive`/`level` are ignored; `filter` is a case-insensitive
-  // substring match on name or display name.
+  // substring match on name or display name. `path` is the bare file name
+  // (not PrusaLink's "/usb/..." path) because Obico sends it back unchanged
+  // as the select_file argument, which is matched against the file list.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async function handleListFiles(passthru: any): Promise<void> {
-    const ref = passthru.ref;
-    try {
+  function handleListFiles(passthru: any): Promise<void> {
+    return answerFilePassthru(passthru.ref, "list_files", async () => {
       const filter =
         typeof passthru.kwargs?.filter === "string"
           ? passthru.kwargs.filter.toLowerCase()
@@ -349,40 +372,30 @@ export function createObicoAgent(
           continue;
         local[entry.name] = { ...toOctoPrintFile(entry), path: entry.name };
       }
-      sendPassthruAck(ref, { local });
-    } catch (err) {
-      sendPassthruError(ref, err instanceof Error ? err.message : String(err));
-    }
+      return { local };
+    });
   }
 
   // #122: Obico starts a listed file via select_file(path, sd, printAfterSelect).
   // PrusaLink has no "selected file" state, so selecting without printing is
-  // answered with an error.
+  // answered with an error. Only names present in the file list are accepted.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async function handleSelectFile(passthru: any): Promise<void> {
-    const ref = passthru.ref;
-    try {
+  function handleSelectFile(passthru: any): Promise<void> {
+    return answerFilePassthru(passthru.ref, "select_file", async () => {
       const path = Array.isArray(passthru.args) ? passthru.args[0] : undefined;
-      if (
-        typeof path !== "string" ||
-        !path ||
-        pathBasename(path) !== path ||
-        path === "." ||
-        path === ".."
-      ) {
-        throw new Error("invalid path");
-      }
-      const p = passthru.kwargs?.printAfterSelect;
-      if (p !== true && p !== "true") {
-        throw new Error(
+      const printAfterSelect = passthru.kwargs?.printAfterSelect;
+      if (printAfterSelect !== true && printAfterSelect !== "true") {
+        throw new PassthruError(
           "select_file without printAfterSelect is not supported"
         );
       }
+      const files = await dispatcher.listFiles();
+      if (typeof path !== "string" || !files.some((f) => f.name === path)) {
+        throw new PassthruError("file not found");
+      }
       await dispatcher.startPrint(path);
-      sendPassthruAck(ref, "Success");
-    } catch (err) {
-      sendPassthruError(ref, err instanceof Error ? err.message : String(err));
-    }
+      return "Success";
+    });
   }
 
   async function handleHttpTunnel(tunnel: TunnelRequest): Promise<void> {
