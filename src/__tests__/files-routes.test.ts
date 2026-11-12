@@ -45,6 +45,9 @@ function createTestApp() {
 }
 
 beforeEach(() => {
+  // #122: the file list is cached process-wide; start each test fresh.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  require("../prusalink/file-size-cache").fileSizeCache.invalidateList();
   mockListFiles.mockReset();
   mockUploadFile.mockReset();
   mockDeleteFile.mockReset();

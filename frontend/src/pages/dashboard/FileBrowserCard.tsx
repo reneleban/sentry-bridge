@@ -4,6 +4,7 @@ import {
   Card,
   Group,
   Modal,
+  Progress,
   Stack,
   Table,
   Text,
@@ -20,6 +21,13 @@ interface GcodeFile {
   date: number;
   // null until the bridge has looked it up (#122, SSE `file-size`).
   size: number | null;
+}
+
+const DEFAULT_VISIBLE = 10;
+
+interface SizeProgress {
+  known: number;
+  total: number;
 }
 
 interface Props {
@@ -53,6 +61,7 @@ export function FileBrowserCard({ status }: Props) {
   const [deletingFile, setDeletingFile] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [sizeProgress, setSizeProgress] = useState<SizeProgress | null>(null);
   const [sortKey, setSortKey] = useState<"display" | "date">("date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [overwritePending, setOverwritePending] = useState<{
@@ -64,9 +73,14 @@ export function FileBrowserCard({ status }: Props) {
 
   const visibleFiles = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
+    // Without a search only the 10 newest files are shown; the search covers all.
     const filtered = term
-      ? files.filter((f) => f.display.toLowerCase().includes(term))
-      : files;
+      ? files.filter(
+          (f) =>
+            f.display.toLowerCase().includes(term) ||
+            f.name.toLowerCase().includes(term)
+        )
+      : [...files].sort((a, b) => b.date - a.date).slice(0, DEFAULT_VISIBLE);
     const sorted = [...filtered].sort((a, b) => {
       let cmp = 0;
       if (sortKey === "display") cmp = a.display.localeCompare(b.display);
@@ -101,6 +115,7 @@ export function FileBrowserCard({ status }: Props) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setFiles(data.files ?? []);
+      setSizeProgress(data.sizeProgress ?? null);
     } catch {
       setError(t("dashboard.fileBrowser.error_load"));
     } finally {
@@ -124,6 +139,13 @@ export function FileBrowserCard({ status }: Props) {
         setFiles((prev) =>
           prev.map((f) => (f.name === name ? { ...f, size } : f))
         );
+      } catch {
+        // ignore malformed events
+      }
+    });
+    es.addEventListener("file-size-progress", (e) => {
+      try {
+        setSizeProgress(JSON.parse(e.data) as SizeProgress);
       } catch {
         // ignore malformed events
       }
@@ -320,6 +342,21 @@ export function FileBrowserCard({ status }: Props) {
           </Text>
         )}
 
+        {sizeProgress && sizeProgress.known < sizeProgress.total && (
+          <Stack gap={2} mb="sm">
+            <Text size="xs" c="dimmed">
+              {t("dashboard.fileBrowser.size_progress", {
+                known: sizeProgress.known,
+                total: sizeProgress.total,
+              })}
+            </Text>
+            <Progress
+              size="sm"
+              value={(sizeProgress.known / sizeProgress.total) * 100}
+            />
+          </Stack>
+        )}
+
         {files.length > 0 && (
           <TextInput
             size="xs"
@@ -415,6 +452,13 @@ export function FileBrowserCard({ status }: Props) {
           <Text size="xs" c="dimmed">
             {t("dashboard.fileBrowser.file_count", { count: files.length })}
           </Text>
+          {!searchTerm.trim() && files.length > DEFAULT_VISIBLE && (
+            <Text size="xs" c="dimmed">
+              {t("dashboard.fileBrowser.showing_newest", {
+                count: DEFAULT_VISIBLE,
+              })}
+            </Text>
+          )}
         </Stack>
       </Card>
     </>

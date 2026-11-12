@@ -21,7 +21,8 @@ fi
 
 mkdir -p "$CONFIG_DIR" 2>/dev/null || true
 
-for p in "$CONFIG_DIR" "$CONFIG_FILE" "$CONFIG_DIR/print-state.json" "$CONFIG_DIR/print-state.json.tmp"; do
+for p in "$CONFIG_DIR" "$CONFIG_FILE" "$CONFIG_DIR/print-state.json" "$CONFIG_DIR/print-state.json.tmp" \
+  "$CONFIG_DIR/file-sizes.json" "$CONFIG_DIR/file-sizes.json.tmp"; do
   [ -e "$p" ] || continue
   if [ "$(stat -c %u "$p")" != "$(id -u "$RUN_USER")" ]; then
     chown "$RUN_USER:$RUN_USER" "$p" 2>/dev/null || true

@@ -1,3 +1,4 @@
+import { createFileSizeCache } from "../prusalink/file-size-cache";
 import { WebSocketServer, WebSocket } from "ws";
 import * as http from "node:http";
 import { AddressInfo } from "node:net";
@@ -1002,7 +1003,10 @@ describe("Print passthru commands", () => {
     return createObicoAgent(
       { serverUrl: `http://localhost:${port}`, apiKey: "key" },
       mockHttp,
-      mockDispatcher
+      mockDispatcher,
+      undefined,
+      // #122: a fresh, memory-only cache per agent without lookup pauses.
+      createFileSizeCache({ pauseMs: 0 })
     );
   }
 
@@ -1291,9 +1295,8 @@ describe("Print passthru commands", () => {
     const files = manyFiles
       .slice(0, 2)
       .map((f) => ({ ...f, name: `BG${f.name}` }));
-    (mockDispatcher.listFiles as jest.Mock)
-      .mockResolvedValueOnce(files)
-      .mockResolvedValueOnce(files);
+    // The second list_files is served from the cached file list.
+    (mockDispatcher.listFiles as jest.Mock).mockResolvedValueOnce(files);
     (mockDispatcher.getFileSize as jest.Mock).mockClear();
     const msg = (ref: string) =>
       JSON.stringify({

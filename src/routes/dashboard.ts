@@ -109,9 +109,13 @@ router.get("/status/stream", (req: Request, res: Response) => {
   const unsubscribe = fileSizeCache.onSize((name, size) =>
     send("file-size", { name, size })
   );
+  const unsubscribeProgress = fileSizeCache.onProgress((p) =>
+    send("file-size-progress", p)
+  );
   req.on("close", () => {
     clearInterval(interval);
     unsubscribe();
+    unsubscribeProgress();
   });
 });
 

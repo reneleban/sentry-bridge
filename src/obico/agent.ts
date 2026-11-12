@@ -12,7 +12,7 @@ import {
   isIdleState,
 } from "./types";
 import { PrinterStatus, JobInfo } from "../prusalink/types";
-import { fileSizeCache } from "../prusalink/file-size-cache";
+import { FileSizeCache, fileSizeCache } from "../prusalink/file-size-cache";
 import {
   PrintStartStore,
   createMemoryPrintStartStore,
@@ -48,7 +48,8 @@ export function createObicoAgent(
   config: ObicoAgentConfig,
   http: HttpFetcher,
   dispatcher: PrusaLinkCommandDispatcher,
-  printStartStore: PrintStartStore = createMemoryPrintStartStore()
+  printStartStore: PrintStartStore = createMemoryPrintStartStore(),
+  fileSizes: FileSizeCache = fileSizeCache
 ): ObicoAgent {
   const cb = createCircuitBreaker(resilienceConfig.circuitBreaker);
   circuitBreakerRegistry.set("obico_ws", cb);
@@ -311,6 +312,7 @@ export function createObicoAgent(
       if (!res.ok) throw new Error(`download failed: ${res.status}`);
       const buf = Buffer.from(await res.arrayBuffer());
       await dispatcher.uploadFile(cleanName, buf);
+      fileSizes.invalidateList();
 
       await dispatcher.startPrint(cleanName);
 
@@ -366,7 +368,7 @@ export function createObicoAgent(
       const local: Record<string, OctoPrintFile> = {};
       // Newest first: older Obico builds show the list in reply order and
       // ignore the dialog's sort choice.
-      const all = await dispatcher.listFiles();
+      const all = await fileSizes.list(() => dispatcher.listFiles());
       const entries = all
         .filter(
           (entry) =>
@@ -379,7 +381,7 @@ export function createObicoAgent(
         );
       // Sizes come from the shared cache; unknown ones are looked up in the
       // background and reported as 0 (Obico expects a number).
-      const known = fileSizeCache.get(all, (n) => dispatcher.getFileSize(n));
+      const known = fileSizes.get(all, (n) => dispatcher.getFileSize(n));
       const sizeOf = new Map(all.map((e, i) => [e.name, known[i] ?? 0]));
       entries.forEach((entry) => {
         // Obico's dialog displays `name`, so use the long display name there;

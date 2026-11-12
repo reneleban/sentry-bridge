@@ -27,7 +27,7 @@ router.get("/", async (_req: Request, res: Response) => {
       username: config.prusalink.username,
       password: config.prusalink.password,
     });
-    const entries = await client.listFiles();
+    const entries = await fileSizeCache.list(() => client.listFiles());
     // #122: size is null until the background lookup reports it (SSE
     // `file-size` event on /api/status/stream).
     const sizes = fileSizeCache.get(entries, (n) => client.getFileSize(n));
@@ -35,7 +35,7 @@ router.get("/", async (_req: Request, res: Response) => {
       ...toOctoPrintFile(e),
       size: sizes[i],
     }));
-    res.json({ files, free: 0 });
+    res.json({ files, free: 0, sizeProgress: fileSizeCache.progress() });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to list files";
     res.status(502).json({ message });
@@ -63,6 +63,7 @@ router.post(
       });
       const data = await readFile(tmpPath);
       await client.uploadFile(originalName, data);
+      fileSizeCache.invalidateList();
       res.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Upload failed";
@@ -120,6 +121,7 @@ router.delete("/:name", async (req: Request, res: Response) => {
       password: config.prusalink.password,
     });
     await client.deleteFile(filename);
+    fileSizeCache.invalidateList();
     res.status(204).send();
   } catch (err) {
     const message = err instanceof Error ? err.message : "Delete failed";

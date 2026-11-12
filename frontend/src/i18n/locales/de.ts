@@ -129,6 +129,9 @@ export default {
       col_date: "Datum",
       file_count: "{{count}} Datei(en)",
       search_placeholder: "Nach Dateiname suchen…",
+      size_progress: "Dateigrößen werden ermittelt: {{known}} / {{total}}",
+      showing_newest:
+        "Die {{count}} neuesten Dateien werden angezeigt; Suche findet alle",
       no_search_results: "Keine Datei entspricht der Suche",
       overwrite_title: "Datei existiert bereits",
       overwrite_confirm:
