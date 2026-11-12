@@ -328,25 +328,35 @@ export function createObicoAgent(
     }
   }
 
+  type ControlCommand = "pause" | "resume" | "cancel";
+  const CONTROL_COMMANDS: readonly string[] = ["pause", "resume", "cancel"];
+
+  // Runs a printer control command. Failures are surfaced on the dashboard
+  // (health WARN) and, when Obico sent a passthru ref, reported back to Obico.
+  async function runControlCommand(
+    cmd: ControlCommand,
+    ref?: string
+  ): Promise<void> {
+    try {
+      await dispatcher[cmd]();
+      if (ref) sendPassthruAck(ref, "Success");
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.error(`[obico] ${cmd} failed:`, reason);
+      healthMonitor.pushError(
+        "prusalink",
+        `${cmd} failed: ${reason}`,
+        ErrorSeverity.WARN
+      );
+      if (ref) sendPassthruError(ref, reason);
+    }
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function handleCommands(commands: any[]): void {
     for (const command of commands) {
-      switch (command.cmd) {
-        case "pause":
-          dispatcher
-            .pause()
-            .catch((e) => console.error("[obico] pause failed:", e.message));
-          break;
-        case "resume":
-          dispatcher
-            .resume()
-            .catch((e) => console.error("[obico] resume failed:", e.message));
-          break;
-        case "cancel":
-          dispatcher
-            .cancel()
-            .catch((e) => console.error("[obico] cancel failed:", e.message));
-          break;
+      if (CONTROL_COMMANDS.includes(command.cmd)) {
+        void runControlCommand(command.cmd);
       }
     }
   }
@@ -354,22 +364,8 @@ export function createObicoAgent(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function handlePassthru(passthru: any): void {
     if (passthru.target === "Printer") {
-      switch (passthru.func) {
-        case "pause":
-          dispatcher
-            .pause()
-            .catch((e) => console.error("[obico] pause failed:", e.message));
-          break;
-        case "resume":
-          dispatcher
-            .resume()
-            .catch((e) => console.error("[obico] resume failed:", e.message));
-          break;
-        case "cancel":
-          dispatcher
-            .cancel()
-            .catch((e) => console.error("[obico] cancel failed:", e.message));
-          break;
+      if (CONTROL_COMMANDS.includes(passthru.func)) {
+        void runControlCommand(passthru.func, passthru.ref);
       }
       return;
     }

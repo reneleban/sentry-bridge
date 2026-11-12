@@ -946,6 +946,83 @@ describe("Print passthru commands", () => {
     }, 300);
   });
 
+  // #113: printer control failures are reported back to Obico and the dashboard
+  function sendAndCollect(
+    msg: object,
+    check: (received: string[]) => void,
+    done: jest.DoneCallback
+  ) {
+    const agent = makeAgent();
+    agent.connect();
+    const received: string[] = [];
+    wss.on("connection", (ws) => {
+      ws.on("message", (data) => received.push(data.toString()));
+      setTimeout(() => ws.send(JSON.stringify(msg)), 50);
+    });
+    setTimeout(() => {
+      check(received);
+      agent.disconnect();
+      done();
+    }, 300);
+  }
+
+  it("#113: sends passthru error and health WARN when Printer.pause rejects", (done) => {
+    (mockDispatcher.pause as jest.Mock).mockRejectedValueOnce(
+      new Error("409 Conflict")
+    );
+    import("../lib/health").then(({ healthMonitor }) => {
+      const spy = jest.spyOn(healthMonitor, "pushError");
+      sendAndCollect(
+        { passthru: { target: "Printer", func: "pause", ref: "C1" } },
+        (received) => {
+          const ack = received.find((m) => m.includes('"ref":"C1"'));
+          expect(ack).toBeDefined();
+          expect(JSON.parse(ack!).passthru.error).toMatch(/409 Conflict/);
+          expect(spy).toHaveBeenCalledWith(
+            "prusalink",
+            expect.stringMatching(/pause failed: 409 Conflict/),
+            expect.anything()
+          );
+          spy.mockRestore();
+        },
+        done
+      );
+    });
+  });
+
+  it("#113: sends passthru Success ack when Printer.cancel succeeds", (done) => {
+    sendAndCollect(
+      { passthru: { target: "Printer", func: "cancel", ref: "C2" } },
+      (received) => {
+        const ack = received.find((m) => m.includes('"ref":"C2"'));
+        expect(ack).toBeDefined();
+        expect(JSON.parse(ack!).passthru.ret).toBe("Success");
+      },
+      done
+    );
+  });
+
+  it("#113: pushes health WARN when commands[] resume rejects", (done) => {
+    (mockDispatcher.resume as jest.Mock).mockRejectedValueOnce(
+      new Error("offline")
+    );
+    import("../lib/health").then(({ healthMonitor }) => {
+      const spy = jest.spyOn(healthMonitor, "pushError");
+      sendAndCollect(
+        { commands: [{ cmd: "resume" }] },
+        () => {
+          expect(spy).toHaveBeenCalledWith(
+            "prusalink",
+            expect.stringMatching(/resume failed: offline/),
+            expect.anything()
+          );
+          spy.mockRestore();
+        },
+        done
+      );
+    });
+  });
+
   // Test 3 (PRINT-02 args/kwargs Tolerance): kwargs instead of args
   it("PRINT-02: handles kwargs envelope same as args", (done) => {
     const agent = makeAgent();
