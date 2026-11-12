@@ -2592,3 +2592,76 @@ describe("current_print_ts", () => {
     ]);
   });
 });
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Reconnect after the obico_ws breaker opened (#127)
+// ──────────────────────────────────────────────────────────────────────────────
+
+describe("WebSocket reconnect after obico_ws breaker opens", () => {
+  const saved = {
+    cb: { ...resilienceConfig.circuitBreaker },
+    retry: { ...resilienceConfig.retry },
+  };
+
+  afterEach(() => {
+    Object.assign(resilienceConfig.circuitBreaker, saved.cb);
+    Object.assign(resilienceConfig.retry, saved.retry);
+  });
+
+  it("reconnects on its own once Obico is reachable again", async () => {
+    Object.assign(resilienceConfig.circuitBreaker, {
+      threshold: 2,
+      resetTimeoutMs: 100,
+    });
+    Object.assign(resilienceConfig.retry, { baseDelayMs: 10, maxDelayMs: 20 });
+
+    // Reserve a port, then free it so Obico is unreachable.
+    const probe = new WebSocketServer({ port: 0 });
+    await new Promise((r) => probe.on("listening", r));
+    const port = boundPort(probe);
+    await new Promise((r) => probe.close(r));
+
+    const agent = createObicoAgent(
+      {
+        serverUrl: `http://localhost:${port}`,
+        apiKey: "k",
+        streamUrl: "http://x/stream",
+      },
+      mockHttp as any,
+      mockDispatcher
+    );
+    agent.connect();
+    try {
+      const cb = circuitBreakerRegistry.get("obico_ws")!;
+      const deadline = Date.now() + 2000;
+      while (cb.state !== CircuitState.OPEN && Date.now() < deadline)
+        await new Promise((r) => setTimeout(r, 5));
+      expect(cb.state).toBe(CircuitState.OPEN);
+      // Let the agent hit the open breaker at least once.
+      await new Promise((r) => setTimeout(r, 50));
+
+      const wss = new WebSocketServer({ port });
+      const connected = new Promise<void>((r) =>
+        wss.on("connection", () => r())
+      );
+      try {
+        await Promise.race([
+          connected,
+          new Promise((_, rej) =>
+            setTimeout(() => rej(new Error("agent did not reconnect")), 1500)
+          ),
+        ]);
+        const { healthMonitor } = await import("../lib/health");
+        await new Promise((r) => setTimeout(r, 20));
+        expect(healthMonitor.getComponentStats("obico_ws").state).toBe(
+          HealthState.HEALTHY
+        );
+      } finally {
+        agent.disconnect();
+        await new Promise((r) => wss.close(r));
+      }
+    } finally {
+      agent.disconnect();
+    }
+  });
+});

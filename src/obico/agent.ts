@@ -233,14 +233,19 @@ export function createObicoAgent(
     ).catch(() => {
       // CB open or initial connect failed — close handler only fires if ws was
       // created. If CB rejected before ws was created, schedule reconnect here.
-      if (!disconnecting && !reconnectTimer) scheduleReconnect(url);
+      if (!disconnecting) scheduleReconnect(url);
     });
   }
 
   function scheduleReconnect(url: string): void {
+    // At most one pending reconnect: close handler and catch may both call this.
+    if (reconnectTimer) return;
     const delay = calculateDelay(reconnectAttempt, resilienceConfig.retry);
     reconnectAttempt++;
-    reconnectTimer = setTimeout(() => openWebSocket(url), delay);
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      openWebSocket(url);
+    }, delay);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
