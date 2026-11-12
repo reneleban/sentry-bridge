@@ -58,4 +58,4 @@ When you switch the camera protocol to RTSP in PrusaLink settings (`Settings →
 
 These decisions are not permanent — they represent the best trade-offs at the time SentryBridge was designed. If Obico adds first-class support for non-OctoPrint agents, or if Prusa exposes a stable LAN WebRTC endpoint, the relevant decisions will be revisited.
 
-*Back to [User Guide](../README.md)*
+_Back to [User Guide](../README.md)_
