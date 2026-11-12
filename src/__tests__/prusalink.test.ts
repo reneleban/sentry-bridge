@@ -2,6 +2,8 @@ import { Readable } from "node:stream";
 import { createPrusaLinkClient, HttpFetcher } from "../prusalink/client";
 import { PrusaLinkConfig } from "../prusalink/types";
 import { resilienceConfig } from "../lib/env-config";
+import { healthMonitor } from "../lib/health";
+import { HealthState } from "../lib/health-monitor";
 
 const config: PrusaLinkConfig = {
   baseUrl: "http://prusa.local",
@@ -583,6 +585,16 @@ describe("PrusaLinkClient", () => {
       await expect(client.getJob()).rejects.toThrow(/timed out/i);
     });
 
+    it("aborts when headers arrive but the body stalls", async () => {
+      mockFetch.mockResolvedValue({
+        status: 200,
+        ok: true,
+        json: () => new Promise(() => {}),
+      });
+      const client = createPrusaLinkClient(config, fetcher, { timeoutMs: 20 });
+      await expect(client.getStatus()).rejects.toThrow(/timed out/i);
+    });
+
     it("counts timeouts toward the circuit breaker", async () => {
       mockFetch.mockImplementation(hangingFetch);
       const client = createPrusaLinkClient(config, fetcher, { timeoutMs: 5 });
@@ -627,6 +639,18 @@ describe("PrusaLinkClient", () => {
         });
       }
     );
+
+    it("cancels the 5xx response body and marks PrusaLink DEGRADED", async () => {
+      const cancel = jest.fn().mockResolvedValue(undefined);
+      mockFetch.mockResolvedValue({
+        ...mockResponse(503),
+        body: { cancel },
+      });
+      const client = createPrusaLinkClient(config, fetcher);
+      await expect(client.getStatus()).rejects.toThrow("503");
+      expect(cancel).toHaveBeenCalled();
+      expect(healthMonitor.getHealth().prusalink).toBe(HealthState.DEGRADED);
+    });
 
     it("testConnection() still reports a 500 as unreachable", async () => {
       mockFetch.mockResolvedValue(mockResponse(500));
