@@ -559,4 +559,81 @@ describe("PrusaLinkClient", () => {
       await rejectAssertion;
     });
   });
+
+  describe("request timeout (#112)", () => {
+    function hangingFetch(url: string, opts?: RequestInit): Promise<Response> {
+      return new Promise((_resolve, reject) => {
+        opts?.signal?.addEventListener("abort", () =>
+          reject(new Error("aborted"))
+        );
+      });
+    }
+
+    it("aborts a hanging request after the timeout and passes an AbortSignal", async () => {
+      mockFetch.mockImplementation(hangingFetch);
+      const client = createPrusaLinkClient(config, fetcher, { timeoutMs: 20 });
+      await expect(client.getStatus()).rejects.toThrow(/timed out/i);
+      const opts = mockFetch.mock.calls[0][1] as RequestInit;
+      expect(opts.signal?.aborted).toBe(true);
+    });
+
+    it("rejects even if the fetcher ignores the abort signal", async () => {
+      mockFetch.mockImplementation(() => new Promise(() => {}));
+      const client = createPrusaLinkClient(config, fetcher, { timeoutMs: 20 });
+      await expect(client.getJob()).rejects.toThrow(/timed out/i);
+    });
+
+    it("counts timeouts toward the circuit breaker", async () => {
+      mockFetch.mockImplementation(hangingFetch);
+      const client = createPrusaLinkClient(config, fetcher, { timeoutMs: 5 });
+      for (let i = 0; i < resilienceConfig.circuitBreaker.threshold; i++) {
+        await expect(client.getStatus()).rejects.toThrow(/timed out/i);
+      }
+      mockFetch.mockClear();
+      await expect(client.getStatus()).rejects.toThrow(
+        "Circuit breaker is OPEN"
+      );
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("HTTP status and the circuit breaker (#114)", () => {
+    const threshold = () => resilienceConfig.circuitBreaker.threshold;
+
+    it("opens the breaker after repeated 5xx responses", async () => {
+      mockFetch.mockResolvedValue(mockResponse(503));
+      const client = createPrusaLinkClient(config, fetcher);
+      for (let i = 0; i < threshold(); i++) {
+        await expect(client.getStatus()).rejects.toThrow("503");
+      }
+      mockFetch.mockClear();
+      await expect(client.getStatus()).rejects.toThrow(
+        "Circuit breaker is OPEN"
+      );
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it.each([401, 404, 409])(
+      "does not open the breaker on repeated %i responses",
+      async (status) => {
+        mockFetch.mockResolvedValue(mockResponse(status));
+        const client = createPrusaLinkClient(config, fetcher);
+        for (let i = 0; i < threshold() + 1; i++) {
+          await client.testConnection();
+        }
+        mockFetch.mockResolvedValue(mockResponse(200, statusBody));
+        await expect(client.getStatus()).resolves.toMatchObject({
+          state: "IDLE",
+        });
+      }
+    );
+
+    it("testConnection() still reports a 500 as unreachable", async () => {
+      mockFetch.mockResolvedValue(mockResponse(500));
+      const client = createPrusaLinkClient(config, fetcher);
+      const result = await client.testConnection();
+      expect(result).toMatchObject({ ok: false, reason: "unreachable" });
+      expect(result.error).toMatch(/500/);
+    });
+  });
 });

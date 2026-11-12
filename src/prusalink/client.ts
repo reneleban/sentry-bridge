@@ -22,10 +22,54 @@ function createDigestFetcher(username: string, password: string): HttpFetcher {
   return { fetch: (url, opts) => client.fetch(url, opts ?? {}) };
 }
 
+export interface PrusaLinkClientOptions {
+  /** Per-request timeout in ms (default 10 s). */
+  timeoutMs?: number;
+  /** Timeout for file uploads in ms (default 10 min; uploads may be large). */
+  uploadTimeoutMs?: number;
+}
+
+const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_UPLOAD_TIMEOUT_MS = 600_000;
+
+class ServerErrorResponse extends Error {
+  constructor(readonly response: Response) {
+    super(`PrusaLink HTTP ${response.status}`);
+  }
+}
+
+async function fetchWithTimeout(
+  http: HttpFetcher,
+  url: string,
+  opts: RequestInit,
+  timeoutMs: number
+): Promise<Response> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`PrusaLink request timed out after ${timeoutMs} ms`));
+      controller.abort();
+    }, timeoutMs);
+  });
+  try {
+    // Race as well as abort, so a fetcher that ignores the signal cannot hang us.
+    return await Promise.race([
+      http.fetch(url, { ...opts, signal: controller.signal }),
+      timeout,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function createPrusaLinkClient(
   config: PrusaLinkConfig,
-  fetcher?: HttpFetcher
+  fetcher?: HttpFetcher,
+  options: PrusaLinkClientOptions = {}
 ): PrusaLinkClient {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const uploadTimeoutMs = options.uploadTimeoutMs ?? DEFAULT_UPLOAD_TIMEOUT_MS;
   const http = fetcher ?? createDigestFetcher(config.username, config.password);
   const base = config.baseUrl.replace(/\/$/, "");
   const cb = createCircuitBreaker(resilienceConfig.circuitBreaker);
@@ -34,17 +78,33 @@ export function createPrusaLinkClient(
   async function request(
     method: string,
     path: string,
-    opts?: RequestInit
+    opts?: RequestInit,
+    timeout = timeoutMs
   ): Promise<Response> {
     try {
-      const res = await cb.execute(() =>
-        http.fetch(`${base}${path}`, { method, ...opts })
-      );
+      const res = await cb.execute(async () => {
+        const r = await fetchWithTimeout(
+          http,
+          `${base}${path}`,
+          { method, ...opts },
+          timeout
+        );
+        // 5xx means PrusaLink itself is failing and counts toward the breaker.
+        // 4xx (401, 404, 409, ...) are caller/state errors: the printer is
+        // reachable, so they are returned to the caller and do not trip it.
+        if (r.status >= 500) throw new ServerErrorResponse(r);
+        return r;
+      });
       healthMonitor.setState("prusalink", HealthState.HEALTHY);
       return res;
     } catch (err) {
       const msg = (err as Error).message;
       healthMonitor.setState("prusalink", HealthState.DOWN);
+      if (err instanceof ServerErrorResponse) {
+        // Failure already counted by the breaker; let the caller map the status.
+        healthMonitor.pushError("prusalink", msg, ErrorSeverity.ERROR);
+        return err.response;
+      }
       healthMonitor.pushError(
         "prusalink",
         msg,
@@ -187,13 +247,18 @@ export function createPrusaLinkClient(
     },
 
     async uploadFile(filename: string, data: Buffer): Promise<void> {
-      const res = await request("PUT", `/api/v1/files/usb/${filename}`, {
-        body: data,
-        headers: {
-          "Content-Type": "application/octet-stream",
-          "Content-Length": String(data.byteLength),
+      const res = await request(
+        "PUT",
+        `/api/v1/files/usb/${filename}`,
+        {
+          body: data,
+          headers: {
+            "Content-Type": "application/octet-stream",
+            "Content-Length": String(data.byteLength),
+          },
         },
-      });
+        uploadTimeoutMs
+      );
       if (!res.ok) throw new Error(`uploadFile failed: ${res.status}`);
     },
 
