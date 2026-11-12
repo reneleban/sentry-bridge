@@ -1,3 +1,4 @@
+import { createFileSizeCache } from "../prusalink/file-size-cache";
 import { WebSocketServer, WebSocket } from "ws";
 import * as http from "node:http";
 import { AddressInfo } from "node:net";
@@ -54,6 +55,23 @@ const mockDispatcher: PrusaLinkCommandDispatcher = {
   cancel: jest.fn().mockResolvedValue(undefined),
   startPrint: jest.fn().mockResolvedValue(undefined),
   uploadFile: jest.fn().mockResolvedValue(undefined),
+  listFiles: jest.fn().mockResolvedValue([
+    {
+      name: "BENCHY~1.BGC",
+      displayName: "benchy.bgcode",
+      path: "/usb/BENCHY~1.BGC",
+      size: 1234,
+      date: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      name: "CUBE~1.BGC",
+      displayName: "cube.bgcode",
+      path: "/usb/CUBE~1.BGC",
+      size: 99,
+      date: "2026-01-02T00:00:00.000Z",
+    },
+  ]),
+  getFileSize: jest.fn().mockResolvedValue(4321),
 };
 
 const idleStatus: PrinterStatus = {
@@ -985,7 +1003,10 @@ describe("Print passthru commands", () => {
     return createObicoAgent(
       { serverUrl: `http://localhost:${port}`, apiKey: "key" },
       mockHttp,
-      mockDispatcher
+      mockDispatcher,
+      undefined,
+      // #122: a fresh, memory-only cache per agent without lookup pauses.
+      createFileSizeCache({ pauseMs: 0 })
     );
   }
 
@@ -1178,6 +1199,243 @@ describe("Print passthru commands", () => {
         warnSpy.mockRestore();
         expect(logged).toContain("unsupported passthru file_operations.nope");
         expect(logged).not.toContain("secret_arg");
+      },
+      done
+    );
+  });
+
+  const replyFor = (received: string[], ref: string) => {
+    const m = received.find((r) => r.includes(`"ref":"${ref}"`));
+    expect(m).toBeDefined();
+    return JSON.parse(m!).passthru;
+  };
+
+  it("#122: answers _file_manager.list_files with OctoPrint-shaped local files", (done) => {
+    sendAndCollect(
+      {
+        passthru: {
+          target: "_file_manager",
+          func: "list_files",
+          kwargs: { path: "", recursive: false, level: 1 },
+          ref: "F1",
+        },
+      },
+      (received) => {
+        const reply = replyFor(received, "F1");
+        // Newest first: older Obico builds show the list in reply order.
+        expect(Object.keys(reply.ret.local)).toEqual([
+          "CUBE~1.BGC",
+          "BENCHY~1.BGC",
+        ]);
+        // Obico links the detail page by `path` and looks the file up by
+        // `name`, so both carry the long display name.
+        expect(reply.ret.local["BENCHY~1.BGC"]).toMatchObject({
+          name: "benchy.bgcode",
+          display: "benchy.bgcode",
+          path: "benchy.bgcode",
+          type: "machinecode",
+          // Unknown until the background lookup finishes.
+          size: 0,
+          date: 1767225600,
+        });
+      },
+      done
+    );
+  });
+
+  it("#122: list_files with filter returns only matching files", (done) => {
+    sendAndCollect(
+      {
+        passthru: {
+          target: "_file_manager",
+          func: "list_files",
+          kwargs: { filter: "CUBE", recursive: true },
+          ref: "F2",
+        },
+      },
+      (received) => {
+        expect(Object.keys(replyFor(received, "F2").ret.local)).toEqual([
+          "CUBE~1.BGC",
+        ]);
+      },
+      done
+    );
+  });
+
+  const manyFiles = Array.from({ length: 12 }, (_, i) => ({
+    name: `F${i}.BGC`,
+    displayName: `f${i}.bgcode`,
+    path: `/usb/F${i}.BGC`,
+    size: 0,
+    date: new Date(Date.UTC(2026, 0, i + 1)).toISOString(),
+  }));
+
+  it("#122: select_file maps the display name from list_files to the PrusaLink name", (done) => {
+    (mockDispatcher.listFiles as jest.Mock).mockResolvedValueOnce(manyFiles);
+    (mockDispatcher.startPrint as jest.Mock).mockClear();
+    sendAndCollect(
+      {
+        passthru: {
+          target: "_printer",
+          func: "select_file",
+          args: ["f3.bgcode", null],
+          kwargs: { printAfterSelect: true },
+          ref: "S8",
+        },
+      },
+      (received) => {
+        expect(mockDispatcher.startPrint).toHaveBeenCalledWith("F3.BGC");
+        expect(replyFor(received, "S8").ret).toBe("Success");
+      },
+      done
+    );
+  });
+
+  it("#122: select_file accepts a listed file", (done) => {
+    (mockDispatcher.listFiles as jest.Mock).mockResolvedValueOnce(manyFiles);
+    (mockDispatcher.startPrint as jest.Mock).mockClear();
+    sendAndCollect(
+      {
+        passthru: {
+          target: "_printer",
+          func: "select_file",
+          args: ["F0.BGC", null],
+          kwargs: { printAfterSelect: true },
+          ref: "S9",
+        },
+      },
+      (received) => {
+        expect(mockDispatcher.startPrint).toHaveBeenCalledWith("F0.BGC");
+        expect(replyFor(received, "S9").ret).toBe("Success");
+      },
+      done
+    );
+  });
+
+  it("#122: list_files answers at once and reports sizes looked up in the background", (done) => {
+    const files = manyFiles
+      .slice(0, 2)
+      .map((f) => ({ ...f, name: `BG${f.name}` }));
+    // The second list_files is served from the cached file list.
+    (mockDispatcher.listFiles as jest.Mock).mockResolvedValueOnce(files);
+    (mockDispatcher.getFileSize as jest.Mock).mockClear();
+    const msg = (ref: string) =>
+      JSON.stringify({
+        passthru: { target: "_file_manager", func: "list_files", ref },
+      });
+    const agent = makeAgent();
+    agent.connect();
+    const received: string[] = [];
+    wss.on("connection", (ws) => {
+      ws.on("message", (data) => received.push(data.toString()));
+      setTimeout(() => ws.send(msg("C1")), 50);
+      setTimeout(() => ws.send(msg("C2")), 150);
+    });
+    setTimeout(() => {
+      try {
+        expect(replyFor(received, "C1").ret.local["BGF1.BGC"].size).toBe(0);
+        expect(replyFor(received, "C2").ret.local["BGF1.BGC"].size).toBe(4321);
+        expect(mockDispatcher.getFileSize).toHaveBeenCalledTimes(2);
+        done();
+      } catch (err) {
+        done(err);
+      } finally {
+        agent.disconnect();
+      }
+    }, 300);
+  });
+
+  it("#122: list_files replies with an error when PrusaLink fails", (done) => {
+    (mockDispatcher.listFiles as jest.Mock).mockRejectedValueOnce(
+      new Error("listFiles failed: 500")
+    );
+    sendAndCollect(
+      { passthru: { target: "_file_manager", func: "list_files", ref: "F3" } },
+      (received) => {
+        expect(replyFor(received, "F3").error).toBe("printer request failed");
+      },
+      done
+    );
+  });
+
+  it("#122: _printer.select_file with printAfterSelect starts the print", (done) => {
+    (mockDispatcher.startPrint as jest.Mock).mockClear();
+    sendAndCollect(
+      {
+        passthru: {
+          target: "_printer",
+          func: "select_file",
+          args: ["CUBE~1.BGC", null],
+          kwargs: { printAfterSelect: "true" },
+          ref: "S1",
+        },
+      },
+      (received) => {
+        expect(mockDispatcher.startPrint).toHaveBeenCalledWith("CUBE~1.BGC");
+        expect(replyFor(received, "S1").ret).toBe("Success");
+      },
+      done
+    );
+  });
+
+  it.each([["../etc/passwd"], ["%2e%2e"], ["a?b"], ["a\\b"], ["UNKNOWN.BGC"]])(
+    "#122: select_file rejects %s (not in file list) without printing",
+    (name, done) => {
+      (mockDispatcher.startPrint as jest.Mock).mockClear();
+      sendAndCollect(
+        {
+          passthru: {
+            target: "_printer",
+            func: "select_file",
+            args: [name, null],
+            kwargs: { printAfterSelect: "true" },
+            ref: "S2",
+          },
+        },
+        (received) => {
+          expect(mockDispatcher.startPrint).not.toHaveBeenCalled();
+          expect(replyFor(received, "S2").error).toBe("file not found");
+        },
+        done as jest.DoneCallback
+      );
+    }
+  );
+
+  it("#122: select_file replies with a generic error when startPrint fails", (done) => {
+    (mockDispatcher.startPrint as jest.Mock).mockRejectedValueOnce(
+      new Error("startPrint failed: 409 secret detail")
+    );
+    sendAndCollect(
+      {
+        passthru: {
+          target: "_printer",
+          func: "select_file",
+          args: ["CUBE~1.BGC", null],
+          kwargs: { printAfterSelect: true },
+          ref: "S4",
+        },
+      },
+      (received) => {
+        expect(replyFor(received, "S4").error).toBe("printer request failed");
+      },
+      done
+    );
+  });
+
+  it("#122: select_file without printAfterSelect replies with an error", (done) => {
+    (mockDispatcher.startPrint as jest.Mock).mockClear();
+    sendAndCollect(
+      {
+        passthru: {
+          target: "_printer",
+          func: "select_file",
+          args: ["CUBE~1.BGC", null],
+          ref: "S3",
+        },
+      },
+      (received) => {
+        expect(mockDispatcher.startPrint).not.toHaveBeenCalled();
+        expect(replyFor(received, "S3").error).toMatch(/printAfterSelect/);
       },
       done
     );

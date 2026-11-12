@@ -287,34 +287,56 @@ export function createPrusaLinkClient(
         }));
     },
 
+    // The USB file list has no sizes; the per-file endpoint does.
+    async getFileSize(filename: string): Promise<number> {
+      const { res, body } = await getJson(
+        `/api/v1/files/usb/${encodeURIComponent(filename)}`
+      );
+      if (!res.ok) throw new Error(`getFileSize failed: ${res.status}`);
+      return body.size ?? 0;
+    },
+
     async uploadFile(filename: string, data: Buffer): Promise<void> {
-      const res = await request("PUT", `/api/v1/files/usb/${filename}`, {
-        init: {
-          body: data,
-          headers: {
-            "Content-Type": "application/octet-stream",
-            "Content-Length": String(data.byteLength),
+      const res = await request(
+        "PUT",
+        `/api/v1/files/usb/${encodeURIComponent(filename)}`,
+        {
+          init: {
+            body: data,
+            headers: {
+              "Content-Type": "application/octet-stream",
+              "Content-Length": String(data.byteLength),
+            },
           },
-        },
-        timeoutMs: uploadTimeoutMs,
-      });
+          timeoutMs: uploadTimeoutMs,
+        }
+      );
       if (!res.ok) throw new Error(`uploadFile failed: ${res.status}`);
     },
 
     async startPrint(filename: string): Promise<void> {
       await withRetry(
         async () => {
-          const res = await request("HEAD", `/api/v1/files/usb/${filename}`);
+          const res = await request(
+            "HEAD",
+            `/api/v1/files/usb/${encodeURIComponent(filename)}`
+          );
           if (!res.ok) throw new Error(`file not indexed yet: ${res.status}`);
         },
         { maxAttempts: 10, baseDelayMs: 500, maxDelayMs: 500, jitter: false }
       );
-      const res = await request("POST", `/api/v1/files/usb/${filename}`);
+      const res = await request(
+        "POST",
+        `/api/v1/files/usb/${encodeURIComponent(filename)}`
+      );
       if (!res.ok) throw new Error(`startPrint failed: ${res.status}`);
     },
 
     async deleteFile(filename: string): Promise<void> {
-      const res = await request("DELETE", `/api/v1/files/usb/${filename}`);
+      const res = await request(
+        "DELETE",
+        `/api/v1/files/usb/${encodeURIComponent(filename)}`
+      );
       if (!res.ok) throw new Error(`deleteFile failed: ${res.status}`);
     },
   };

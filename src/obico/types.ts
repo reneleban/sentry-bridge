@@ -1,3 +1,4 @@
+import type { FileEntry } from "../prusalink/types";
 import { PrinterStatus, JobInfo } from "../prusalink/types";
 
 export interface ObicoAgentConfig {
@@ -91,6 +92,8 @@ export interface PrusaLinkCommandDispatcher {
   cancel(): Promise<void>;
   startPrint(filename: string): Promise<void>;
   uploadFile(filename: string, data: Buffer): Promise<void>;
+  listFiles(): Promise<FileEntry[]>;
+  getFileSize(filename: string): Promise<number>;
 }
 
 export interface ObicoAgent {

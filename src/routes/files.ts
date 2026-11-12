@@ -1,7 +1,8 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { loadConfig } from "../config/config";
 import { createPrusaLinkClient } from "../prusalink/client";
-import type { FileEntry } from "../prusalink/types";
+import { toOctoPrintFile } from "../prusalink/octoprint";
+import { fileSizeCache } from "../prusalink/file-size-cache";
 import multer from "multer";
 import { readFile, unlink } from "node:fs/promises";
 import { basename } from "node:path";
@@ -17,37 +18,6 @@ const upload = multer({
 
 const router = Router();
 
-interface OctoPrintFile {
-  name: string;
-  display: string;
-  path: string;
-  type: "machinecode";
-  typePath: ["machinecode", "gcode"];
-  size: number;
-  date: number;
-  origin: "local";
-  refs: { resource: string; download: string };
-  gcodeAnalysis: { estimatedPrintTime: number | null };
-}
-
-function toPrusaLinkFileEntry(entry: FileEntry): OctoPrintFile {
-  return {
-    name: entry.name,
-    display: entry.displayName,
-    path: entry.path,
-    type: "machinecode",
-    typePath: ["machinecode", "gcode"],
-    size: entry.size,
-    date: Math.floor(new Date(entry.date).getTime() / 1000),
-    origin: "local",
-    refs: {
-      resource: `/api/files/${encodeURIComponent(entry.name)}`,
-      download: `/downloads/files/local/${encodeURIComponent(entry.name)}`,
-    },
-    gcodeAnalysis: { estimatedPrintTime: null },
-  };
-}
-
 // GET /api/files — FILES-01
 router.get("/", async (_req: Request, res: Response) => {
   try {
@@ -57,9 +27,15 @@ router.get("/", async (_req: Request, res: Response) => {
       username: config.prusalink.username,
       password: config.prusalink.password,
     });
-    const entries = await client.listFiles();
-    const files = entries.map(toPrusaLinkFileEntry);
-    res.json({ files, free: 0 });
+    const entries = await fileSizeCache.list(() => client.listFiles());
+    // #122: size is null until the background lookup reports it (SSE
+    // `file-size` event on /api/status/stream).
+    const sizes = fileSizeCache.get(entries, (n) => client.getFileSize(n));
+    const files = entries.map((e, i) => ({
+      ...toOctoPrintFile(e),
+      size: sizes[i],
+    }));
+    res.json({ files, free: 0, sizeProgress: fileSizeCache.progress() });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to list files";
     res.status(502).json({ message });
@@ -87,6 +63,7 @@ router.post(
       });
       const data = await readFile(tmpPath);
       await client.uploadFile(originalName, data);
+      fileSizeCache.invalidateList();
       res.json({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Upload failed";
@@ -144,6 +121,7 @@ router.delete("/:name", async (req: Request, res: Response) => {
       password: config.prusalink.password,
     });
     await client.deleteFile(filename);
+    fileSizeCache.invalidateList();
     res.status(204).send();
   } catch (err) {
     const message = err instanceof Error ? err.message : "Delete failed";

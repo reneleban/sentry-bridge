@@ -74,6 +74,7 @@ export interface PrusaLinkClient {
   resume(): Promise<void>;
   cancel(): Promise<void>;
   listFiles(): Promise<FileEntry[]>;
+  getFileSize(filename: string): Promise<number>;
   uploadFile(filename: string, data: Buffer): Promise<void>;
   startPrint(filename: string): Promise<void>;
   deleteFile(filename: string): Promise<void>;

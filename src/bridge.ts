@@ -24,6 +24,7 @@ import {
 } from "./lib/health";
 import { HealthState } from "./lib/health-monitor";
 import type { ComponentName } from "./lib/health-monitor";
+import { prefetchFileSizes } from "./prusalink/file-size-cache";
 
 const httpFetcher: HttpFetcher = { fetch: (url, opts) => fetch(url, opts) };
 
@@ -485,6 +486,9 @@ export async function startBridge(port = 3000): Promise<void> {
     username: config.prusalink.username,
     password: config.prusalink.password,
   });
+
+  // #122: warm the file size cache in the background (never awaited).
+  void prefetchFileSizes(state.prusaClient);
 
   state.camera = createCamera({
     rtspUrl: config.camera.rtspUrl,

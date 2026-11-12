@@ -109,6 +109,7 @@ Expected result: The wizard redirects to the **Dashboard**. You see:
 
 - Connection status: PrusaLink ✓, Camera ✓, Obico ✓
 - Printer state (idle or current print progress)
+- File browser: the 10 newest USB files; the search field filters all files by name. While file sizes are still being looked up, a progress bar shows known / total.
 - In Obico's printer list: your printer is now online
 
 SentryBridge is running. It will restart automatically (`restart: unless-stopped`) if Docker restarts.

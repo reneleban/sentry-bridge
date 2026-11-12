@@ -1,7 +1,8 @@
-import WebSocket from "ws";
 import { createReadStream, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as pathJoin, basename as pathBasename } from "node:path";
+import WebSocket from "ws";
+import { OctoPrintFile, toOctoPrintFile } from "../prusalink/octoprint";
 import {
   ObicoAgent,
   ObicoAgentConfig,
@@ -11,6 +12,7 @@ import {
   isIdleState,
 } from "./types";
 import { PrinterStatus, JobInfo } from "../prusalink/types";
+import { FileSizeCache, fileSizeCache } from "../prusalink/file-size-cache";
 import {
   PrintStartStore,
   createMemoryPrintStartStore,
@@ -40,11 +42,14 @@ const FRAME_UPLOAD_ERROR_BODY_CHARS = 200;
 // Consecutive failures before the health monitor hears about it.
 const FRAME_UPLOAD_FAILURE_THRESHOLD = 3;
 
+class PassthruError extends Error {}
+
 export function createObicoAgent(
   config: ObicoAgentConfig,
   http: HttpFetcher,
   dispatcher: PrusaLinkCommandDispatcher,
-  printStartStore: PrintStartStore = createMemoryPrintStartStore()
+  printStartStore: PrintStartStore = createMemoryPrintStartStore(),
+  fileSizes: FileSizeCache = fileSizeCache
 ): ObicoAgent {
   const cb = createCircuitBreaker(resilienceConfig.circuitBreaker);
   circuitBreakerRegistry.set("obico_ws", cb);
@@ -307,6 +312,7 @@ export function createObicoAgent(
       if (!res.ok) throw new Error(`download failed: ${res.status}`);
       const buf = Buffer.from(await res.arrayBuffer());
       await dispatcher.uploadFile(cleanName, buf);
+      fileSizes.invalidateList();
 
       await dispatcher.startPrint(cleanName);
 
@@ -325,6 +331,96 @@ export function createObicoAgent(
         }
       }
     }
+  }
+
+  // #122: Runs a file passthru handler and answers its ref. Client errors
+  // (thrown as PassthruError) are sent verbatim; anything else is logged
+  // locally and answered generically so PrusaLink details don't leak.
+  async function answerFilePassthru(
+    ref: string,
+    name: string,
+    run: () => Promise<unknown>
+  ): Promise<void> {
+    try {
+      sendPassthruAck(ref, await run());
+    } catch (err) {
+      if (err instanceof PassthruError) {
+        sendPassthruError(ref, err.message);
+        return;
+      }
+      console.warn(`[obico] passthru ${name} failed:`, err);
+      sendPassthruError(ref, "printer request failed");
+    }
+  }
+
+  // #122: Obico's "OctoPrint" file dialog. PrusaLink USB storage is flat, so
+  // `path`/`recursive`/`level` are ignored; `filter` is a case-insensitive
+  // substring match on name or display name. `name` and `path` are both the
+  // long display name: Obico links a file's detail page by `path` and then
+  // looks it up by `name`, so they must match. select_file maps it back to the
+  // PrusaLink name.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function handleListFiles(passthru: any): Promise<void> {
+    return answerFilePassthru(passthru.ref, "list_files", async () => {
+      const filter =
+        typeof passthru.kwargs?.filter === "string"
+          ? passthru.kwargs.filter.toLowerCase()
+          : null;
+      const local: Record<string, OctoPrintFile> = {};
+      // Newest first: older Obico builds show the list in reply order and
+      // ignore the dialog's sort choice.
+      const all = await fileSizes.list(() => dispatcher.listFiles());
+      const entries = all
+        .filter(
+          (entry) =>
+            !filter ||
+            entry.name.toLowerCase().includes(filter) ||
+            entry.displayName.toLowerCase().includes(filter)
+        )
+        .sort(
+          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+        );
+      // Sizes come from the shared cache; unknown ones are looked up in the
+      // background and reported as 0 (Obico expects a number).
+      const known = fileSizes.get(all, (n) => dispatcher.getFileSize(n));
+      const sizeOf = new Map(all.map((e, i) => [e.name, known[i] ?? 0]));
+      entries.forEach((entry) => {
+        const display = entry.displayName || entry.name;
+        local[entry.name] = {
+          ...toOctoPrintFile(entry),
+          name: display,
+          path: display,
+          size: sizeOf.get(entry.name) ?? 0,
+        };
+      });
+      return { local };
+    });
+  }
+
+  // #122: Obico starts a listed file via select_file(path, sd, printAfterSelect).
+  // PrusaLink has no "selected file" state, so selecting without printing is
+  // answered with an error. The argument is the display name from list_files
+  // (or a PrusaLink name); anything not in the file list is rejected.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function handleSelectFile(passthru: any): Promise<void> {
+    return answerFilePassthru(passthru.ref, "select_file", async () => {
+      const path = Array.isArray(passthru.args) ? passthru.args[0] : undefined;
+      const printAfterSelect = passthru.kwargs?.printAfterSelect;
+      if (printAfterSelect !== true && printAfterSelect !== "true") {
+        throw new PassthruError(
+          "select_file without printAfterSelect is not supported"
+        );
+      }
+      const files = await dispatcher.listFiles();
+      const file =
+        typeof path === "string"
+          ? (files.find((f) => f.displayName === path) ??
+            files.find((f) => f.name === path))
+          : undefined;
+      if (!file) throw new PassthruError("file not found");
+      await dispatcher.startPrint(file.name);
+      return "Success";
+    });
   }
 
   async function handleHttpTunnel(tunnel: TunnelRequest): Promise<void> {
@@ -399,6 +495,14 @@ export function createObicoAgent(
       handleDownloadAndPrint(passthru).catch((e) =>
         console.error("[obico] handleDownloadAndPrint failed:", e)
       );
+      return;
+    }
+    if (passthru.target === "_file_manager" && passthru.func === "list_files") {
+      void handleListFiles(passthru);
+      return;
+    }
+    if (passthru.target === "_printer" && passthru.func === "select_file") {
+      void handleSelectFile(passthru);
       return;
     }
     const name = `${passthru.target}.${passthru.func}`;

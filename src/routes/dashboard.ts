@@ -7,6 +7,7 @@ import { createCamera } from "../camera/camera";
 import { getCameraInstance } from "../camera/registry";
 import { startBridge } from "../bridge";
 import { healthMonitor, janusMode } from "../lib/health";
+import { fileSizeCache } from "../prusalink/file-size-cache";
 import { HealthState } from "../lib/health-monitor";
 
 const router = Router();
@@ -105,7 +106,17 @@ router.get("/status/stream", (req: Request, res: Response) => {
 
   poll();
   const interval = setInterval(poll, 5000);
-  req.on("close", () => clearInterval(interval));
+  const unsubscribe = fileSizeCache.onSize((name, size) =>
+    send("file-size", { name, size })
+  );
+  const unsubscribeProgress = fileSizeCache.onProgress((p) =>
+    send("file-size-progress", p)
+  );
+  req.on("close", () => {
+    clearInterval(interval);
+    unsubscribe();
+    unsubscribeProgress();
+  });
 });
 
 // ── Printer info: GET /api/printer/info ───────────────────────────────────
