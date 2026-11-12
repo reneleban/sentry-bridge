@@ -383,8 +383,8 @@ export function createObicoAgent(
     if (passthru.target === "Printer") {
       if (isControlCommand(passthru.func)) {
         void runControlCommand(passthru.func, passthru.ref);
+        return;
       }
-      return;
     }
     if (
       passthru.target === "file_operations" &&
@@ -401,6 +401,9 @@ export function createObicoAgent(
       );
       return;
     }
+    const name = `${passthru.target}.${passthru.func}`;
+    console.warn(`[obico] unsupported passthru ${name}`);
+    if (passthru.ref) sendPassthruError(passthru.ref, `unsupported: ${name}`);
   }
 
   let frameUploadFailures = 0;
