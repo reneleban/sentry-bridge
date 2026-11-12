@@ -7,30 +7,20 @@ describe("calculateDelay", () => {
     const delay = calculateDelay(0, {
       baseDelayMs: 1000,
       maxDelayMs: 30000,
-      jitter: false,
     });
     expect(delay).toBe(1000);
   });
 
   it("doubles delay on each attempt", () => {
-    const opts = { baseDelayMs: 1000, maxDelayMs: 30000, jitter: false };
+    const opts = { baseDelayMs: 1000, maxDelayMs: 30000 };
     expect(calculateDelay(1, opts)).toBe(2000);
     expect(calculateDelay(2, opts)).toBe(4000);
     expect(calculateDelay(3, opts)).toBe(8000);
   });
 
   it("caps at maxDelayMs", () => {
-    const opts = { baseDelayMs: 1000, maxDelayMs: 5000, jitter: false };
+    const opts = { baseDelayMs: 1000, maxDelayMs: 5000 };
     expect(calculateDelay(10, opts)).toBe(5000);
-  });
-
-  it("adds jitter when enabled (result <= delay)", () => {
-    const opts = { baseDelayMs: 1000, maxDelayMs: 30000, jitter: true };
-    for (let i = 0; i < 20; i++) {
-      const delay = calculateDelay(1, opts);
-      expect(delay).toBeGreaterThan(0);
-      expect(delay).toBeLessThanOrEqual(2000);
-    }
   });
 });
 

@@ -2,17 +2,14 @@ export interface RetryOptions {
   maxAttempts: number;
   baseDelayMs: number;
   maxDelayMs: number;
-  jitter?: boolean;
 }
 
 export function calculateDelay(
   attempt: number,
-  opts: Omit<RetryOptions, "maxAttempts"> & { jitter?: boolean }
+  opts: Omit<RetryOptions, "maxAttempts">
 ): number {
   const base = opts.baseDelayMs * Math.pow(2, attempt);
-  const capped = Math.min(base, opts.maxDelayMs);
-  if (!opts.jitter) return capped;
-  return Math.floor(Math.random() * capped);
+  return Math.min(base, opts.maxDelayMs);
 }
 
 export async function withRetry<T>(
