@@ -1227,12 +1227,12 @@ describe("Print passthru commands", () => {
           "CUBE~1.BGC",
           "BENCHY~1.BGC",
         ]);
-        // Obico's dialog shows `name`, so it carries the long display name;
-        // `path` keeps the PrusaLink name used by select_file.
+        // Obico links the detail page by `path` and looks the file up by
+        // `name`, so both carry the long display name.
         expect(reply.ret.local["BENCHY~1.BGC"]).toMatchObject({
           name: "benchy.bgcode",
           display: "benchy.bgcode",
-          path: "BENCHY~1.BGC",
+          path: "benchy.bgcode",
           type: "machinecode",
           // Unknown until the background lookup finishes.
           size: 0,
@@ -1269,6 +1269,27 @@ describe("Print passthru commands", () => {
     size: 0,
     date: new Date(Date.UTC(2026, 0, i + 1)).toISOString(),
   }));
+
+  it("#122: select_file maps the display name from list_files to the PrusaLink name", (done) => {
+    (mockDispatcher.listFiles as jest.Mock).mockResolvedValueOnce(manyFiles);
+    (mockDispatcher.startPrint as jest.Mock).mockClear();
+    sendAndCollect(
+      {
+        passthru: {
+          target: "_printer",
+          func: "select_file",
+          args: ["f3.bgcode", null],
+          kwargs: { printAfterSelect: true },
+          ref: "S8",
+        },
+      },
+      (received) => {
+        expect(mockDispatcher.startPrint).toHaveBeenCalledWith("F3.BGC");
+        expect(replyFor(received, "S8").ret).toBe("Success");
+      },
+      done
+    );
+  });
 
   it("#122: select_file accepts a listed file", (done) => {
     (mockDispatcher.listFiles as jest.Mock).mockResolvedValueOnce(manyFiles);

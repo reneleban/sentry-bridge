@@ -355,9 +355,10 @@ export function createObicoAgent(
 
   // #122: Obico's "OctoPrint" file dialog. PrusaLink USB storage is flat, so
   // `path`/`recursive`/`level` are ignored; `filter` is a case-insensitive
-  // substring match on name or display name. `path` is the bare file name
-  // (not PrusaLink's "/usb/..." path) because Obico sends it back unchanged
-  // as the select_file argument, which is matched against the file list.
+  // substring match on name or display name. `name` and `path` are both the
+  // long display name: Obico links a file's detail page by `path` and then
+  // looks it up by `name`, so they must match. select_file maps it back to the
+  // PrusaLink name.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function handleListFiles(passthru: any): Promise<void> {
     return answerFilePassthru(passthru.ref, "list_files", async () => {
@@ -384,12 +385,11 @@ export function createObicoAgent(
       const known = fileSizes.get(all, (n) => dispatcher.getFileSize(n));
       const sizeOf = new Map(all.map((e, i) => [e.name, known[i] ?? 0]));
       entries.forEach((entry) => {
-        // Obico's dialog displays `name`, so use the long display name there;
-        // `path` stays the PrusaLink name that select_file sends back.
+        const display = entry.displayName || entry.name;
         local[entry.name] = {
           ...toOctoPrintFile(entry),
-          name: entry.displayName || entry.name,
-          path: entry.name,
+          name: display,
+          path: display,
           size: sizeOf.get(entry.name) ?? 0,
         };
       });
@@ -399,7 +399,8 @@ export function createObicoAgent(
 
   // #122: Obico starts a listed file via select_file(path, sd, printAfterSelect).
   // PrusaLink has no "selected file" state, so selecting without printing is
-  // answered with an error. Only names present in the file list are accepted.
+  // answered with an error. The argument is the display name from list_files
+  // (or a PrusaLink name); anything not in the file list is rejected.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function handleSelectFile(passthru: any): Promise<void> {
     return answerFilePassthru(passthru.ref, "select_file", async () => {
@@ -411,10 +412,13 @@ export function createObicoAgent(
         );
       }
       const files = await dispatcher.listFiles();
-      if (typeof path !== "string" || !files.some((f) => f.name === path)) {
-        throw new PassthruError("file not found");
-      }
-      await dispatcher.startPrint(path);
+      const file =
+        typeof path === "string"
+          ? (files.find((f) => f.displayName === path) ??
+            files.find((f) => f.name === path))
+          : undefined;
+      if (!file) throw new PassthruError("file not found");
+      await dispatcher.startPrint(file.name);
       return "Success";
     });
   }
