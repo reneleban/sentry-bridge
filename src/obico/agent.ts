@@ -363,7 +363,12 @@ export function createObicoAgent(
           ? passthru.kwargs.filter.toLowerCase()
           : null;
       const local: Record<string, OctoPrintFile> = {};
-      for (const entry of await dispatcher.listFiles()) {
+      // Newest first: older Obico builds show the list in reply order and
+      // ignore the dialog's sort choice.
+      const entries = (await dispatcher.listFiles()).sort(
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+      );
+      for (const entry of entries) {
         if (
           filter &&
           !entry.name.toLowerCase().includes(filter) &&

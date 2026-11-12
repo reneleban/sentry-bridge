@@ -1217,9 +1217,10 @@ describe("Print passthru commands", () => {
       },
       (received) => {
         const reply = replyFor(received, "F1");
+        // Newest first: older Obico builds show the list in reply order.
         expect(Object.keys(reply.ret.local)).toEqual([
-          "BENCHY~1.BGC",
           "CUBE~1.BGC",
+          "BENCHY~1.BGC",
         ]);
         // Obico's dialog shows `name`, so it carries the long display name;
         // `path` keeps the PrusaLink name used by select_file.
