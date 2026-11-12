@@ -51,4 +51,21 @@ describe("registerFrameForwarding()", () => {
     expect(warn).toHaveBeenCalledTimes(2);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("recovered"));
   });
+
+  it("skips frames while an upload is still in flight", async () => {
+    let finish: () => void = () => {};
+    const sendFrame = jest
+      .fn()
+      .mockImplementationOnce(
+        () => new Promise<void>((resolve) => (finish = resolve))
+      );
+    const { emit } = setup(sendFrame);
+    const first = emit();
+    await emit();
+    expect(sendFrame).toHaveBeenCalledTimes(1);
+    finish();
+    await first;
+    await emit();
+    expect(sendFrame).toHaveBeenCalledTimes(2);
+  });
 });
