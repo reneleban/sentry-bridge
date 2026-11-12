@@ -54,6 +54,22 @@ const mockDispatcher: PrusaLinkCommandDispatcher = {
   cancel: jest.fn().mockResolvedValue(undefined),
   startPrint: jest.fn().mockResolvedValue(undefined),
   uploadFile: jest.fn().mockResolvedValue(undefined),
+  listFiles: jest.fn().mockResolvedValue([
+    {
+      name: "BENCHY~1.BGC",
+      displayName: "benchy.bgcode",
+      path: "/usb/BENCHY~1.BGC",
+      size: 1234,
+      date: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      name: "CUBE~1.BGC",
+      displayName: "cube.bgcode",
+      path: "/usb/CUBE~1.BGC",
+      size: 99,
+      date: "2026-01-02T00:00:00.000Z",
+    },
+  ]),
 };
 
 const idleStatus: PrinterStatus = {
@@ -1178,6 +1194,132 @@ describe("Print passthru commands", () => {
         warnSpy.mockRestore();
         expect(logged).toContain("unsupported passthru file_operations.nope");
         expect(logged).not.toContain("secret_arg");
+      },
+      done
+    );
+  });
+
+  const replyFor = (received: string[], ref: string) => {
+    const m = received.find((r) => r.includes(`"ref":"${ref}"`));
+    expect(m).toBeDefined();
+    return JSON.parse(m!).passthru;
+  };
+
+  it("#122: answers _file_manager.list_files with OctoPrint-shaped local files", (done) => {
+    sendAndCollect(
+      {
+        passthru: {
+          target: "_file_manager",
+          func: "list_files",
+          kwargs: { path: "", recursive: false, level: 1 },
+          ref: "F1",
+        },
+      },
+      (received) => {
+        const reply = replyFor(received, "F1");
+        expect(Object.keys(reply.ret.local)).toEqual([
+          "BENCHY~1.BGC",
+          "CUBE~1.BGC",
+        ]);
+        expect(reply.ret.local["BENCHY~1.BGC"]).toMatchObject({
+          name: "BENCHY~1.BGC",
+          display: "benchy.bgcode",
+          path: "BENCHY~1.BGC",
+          type: "machinecode",
+          size: 1234,
+          date: 1767225600,
+        });
+      },
+      done
+    );
+  });
+
+  it("#122: list_files with filter returns only matching files", (done) => {
+    sendAndCollect(
+      {
+        passthru: {
+          target: "_file_manager",
+          func: "list_files",
+          kwargs: { filter: "CUBE", recursive: true },
+          ref: "F2",
+        },
+      },
+      (received) => {
+        expect(Object.keys(replyFor(received, "F2").ret.local)).toEqual([
+          "CUBE~1.BGC",
+        ]);
+      },
+      done
+    );
+  });
+
+  it("#122: list_files replies with an error when PrusaLink fails", (done) => {
+    (mockDispatcher.listFiles as jest.Mock).mockRejectedValueOnce(
+      new Error("listFiles failed: 500")
+    );
+    sendAndCollect(
+      { passthru: { target: "_file_manager", func: "list_files", ref: "F3" } },
+      (received) => {
+        expect(replyFor(received, "F3").error).toBe("listFiles failed: 500");
+      },
+      done
+    );
+  });
+
+  it("#122: _printer.select_file with printAfterSelect starts the print", (done) => {
+    (mockDispatcher.startPrint as jest.Mock).mockClear();
+    sendAndCollect(
+      {
+        passthru: {
+          target: "_printer",
+          func: "select_file",
+          args: ["CUBE~1.BGC", null],
+          kwargs: { printAfterSelect: "true" },
+          ref: "S1",
+        },
+      },
+      (received) => {
+        expect(mockDispatcher.startPrint).toHaveBeenCalledWith("CUBE~1.BGC");
+        expect(replyFor(received, "S1").ret).toBe("Success");
+      },
+      done
+    );
+  });
+
+  it("#122: select_file rejects path traversal without printing", (done) => {
+    (mockDispatcher.startPrint as jest.Mock).mockClear();
+    sendAndCollect(
+      {
+        passthru: {
+          target: "_printer",
+          func: "select_file",
+          args: ["../etc/passwd", null],
+          kwargs: { printAfterSelect: "true" },
+          ref: "S2",
+        },
+      },
+      (received) => {
+        expect(mockDispatcher.startPrint).not.toHaveBeenCalled();
+        expect(replyFor(received, "S2").error).toMatch(/invalid path/);
+      },
+      done
+    );
+  });
+
+  it("#122: select_file without printAfterSelect replies with an error", (done) => {
+    (mockDispatcher.startPrint as jest.Mock).mockClear();
+    sendAndCollect(
+      {
+        passthru: {
+          target: "_printer",
+          func: "select_file",
+          args: ["CUBE~1.BGC", null],
+          ref: "S3",
+        },
+      },
+      (received) => {
+        expect(mockDispatcher.startPrint).not.toHaveBeenCalled();
+        expect(replyFor(received, "S3").error).toMatch(/printAfterSelect/);
       },
       done
     );

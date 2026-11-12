@@ -1,4 +1,5 @@
 import WebSocket from "ws";
+import { OctoPrintFile, toOctoPrintFile } from "../prusalink/octoprint";
 import { createReadStream, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as pathJoin, basename as pathBasename } from "node:path";
@@ -327,6 +328,63 @@ export function createObicoAgent(
     }
   }
 
+  // #122: Obico's "OctoPrint" file dialog. PrusaLink USB storage is flat, so
+  // `path`/`recursive`/`level` are ignored; `filter` is a case-insensitive
+  // substring match on name or display name.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function handleListFiles(passthru: any): Promise<void> {
+    const ref = passthru.ref;
+    try {
+      const filter =
+        typeof passthru.kwargs?.filter === "string"
+          ? passthru.kwargs.filter.toLowerCase()
+          : null;
+      const local: Record<string, OctoPrintFile> = {};
+      for (const entry of await dispatcher.listFiles()) {
+        if (
+          filter &&
+          !entry.name.toLowerCase().includes(filter) &&
+          !entry.displayName.toLowerCase().includes(filter)
+        )
+          continue;
+        local[entry.name] = { ...toOctoPrintFile(entry), path: entry.name };
+      }
+      sendPassthruAck(ref, { local });
+    } catch (err) {
+      sendPassthruError(ref, err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  // #122: Obico starts a listed file via select_file(path, sd, printAfterSelect).
+  // PrusaLink has no "selected file" state, so selecting without printing is
+  // answered with an error.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function handleSelectFile(passthru: any): Promise<void> {
+    const ref = passthru.ref;
+    try {
+      const path = Array.isArray(passthru.args) ? passthru.args[0] : undefined;
+      if (
+        typeof path !== "string" ||
+        !path ||
+        pathBasename(path) !== path ||
+        path === "." ||
+        path === ".."
+      ) {
+        throw new Error("invalid path");
+      }
+      const p = passthru.kwargs?.printAfterSelect;
+      if (p !== true && p !== "true") {
+        throw new Error(
+          "select_file without printAfterSelect is not supported"
+        );
+      }
+      await dispatcher.startPrint(path);
+      sendPassthruAck(ref, "Success");
+    } catch (err) {
+      sendPassthruError(ref, err instanceof Error ? err.message : String(err));
+    }
+  }
+
   async function handleHttpTunnel(tunnel: TunnelRequest): Promise<void> {
     const res = await handleTunnelRequest(tunnel, {
       localPort: config.localPort ?? 3000,
@@ -399,6 +457,14 @@ export function createObicoAgent(
       handleDownloadAndPrint(passthru).catch((e) =>
         console.error("[obico] handleDownloadAndPrint failed:", e)
       );
+      return;
+    }
+    if (passthru.target === "_file_manager" && passthru.func === "list_files") {
+      void handleListFiles(passthru);
+      return;
+    }
+    if (passthru.target === "_printer" && passthru.func === "select_file") {
+      void handleSelectFile(passthru);
       return;
     }
     const name = `${passthru.target}.${passthru.func}`;

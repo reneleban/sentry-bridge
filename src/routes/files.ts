@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { loadConfig } from "../config/config";
 import { createPrusaLinkClient } from "../prusalink/client";
-import type { FileEntry } from "../prusalink/types";
+import { toOctoPrintFile } from "../prusalink/octoprint";
 import multer from "multer";
 import { readFile, unlink } from "node:fs/promises";
 import { basename } from "node:path";
@@ -17,37 +17,6 @@ const upload = multer({
 
 const router = Router();
 
-interface OctoPrintFile {
-  name: string;
-  display: string;
-  path: string;
-  type: "machinecode";
-  typePath: ["machinecode", "gcode"];
-  size: number;
-  date: number;
-  origin: "local";
-  refs: { resource: string; download: string };
-  gcodeAnalysis: { estimatedPrintTime: number | null };
-}
-
-function toPrusaLinkFileEntry(entry: FileEntry): OctoPrintFile {
-  return {
-    name: entry.name,
-    display: entry.displayName,
-    path: entry.path,
-    type: "machinecode",
-    typePath: ["machinecode", "gcode"],
-    size: entry.size,
-    date: Math.floor(new Date(entry.date).getTime() / 1000),
-    origin: "local",
-    refs: {
-      resource: `/api/files/${encodeURIComponent(entry.name)}`,
-      download: `/downloads/files/local/${encodeURIComponent(entry.name)}`,
-    },
-    gcodeAnalysis: { estimatedPrintTime: null },
-  };
-}
-
 // GET /api/files — FILES-01
 router.get("/", async (_req: Request, res: Response) => {
   try {
@@ -58,7 +27,7 @@ router.get("/", async (_req: Request, res: Response) => {
       password: config.prusalink.password,
     });
     const entries = await client.listFiles();
-    const files = entries.map(toPrusaLinkFileEntry);
+    const files = entries.map(toOctoPrintFile);
     res.json({ files, free: 0 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to list files";

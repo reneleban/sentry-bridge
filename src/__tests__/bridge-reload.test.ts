@@ -28,7 +28,10 @@ describe("diffConfig()", () => {
   });
 
   it("detects prusalink url change", () => {
-    const next = { ...base, prusalink: { ...base.prusalink, url: "http://192.168.1.99" } };
+    const next = {
+      ...base,
+      prusalink: { ...base.prusalink, url: "http://192.168.1.99" },
+    };
     expect(diffConfig(base, next).prusalink).toBe(true);
   });
 
@@ -43,12 +46,18 @@ describe("diffConfig()", () => {
   });
 
   it("detects camera rtspUrl change", () => {
-    const next = { ...base, camera: { ...base.camera, rtspUrl: "rtsp://new/live" } };
+    const next = {
+      ...base,
+      camera: { ...base.camera, rtspUrl: "rtsp://new/live" },
+    };
     expect(diffConfig(base, next).camera).toBe(true);
   });
 
   it("detects camera frameIntervalSeconds change", () => {
-    const next = { ...base, camera: { ...base.camera, frameIntervalSeconds: 99 } };
+    const next = {
+      ...base,
+      camera: { ...base.camera, frameIntervalSeconds: 99 },
+    };
     expect(diffConfig(base, next).camera).toBe(true);
   });
 
@@ -58,7 +67,10 @@ describe("diffConfig()", () => {
   });
 
   it("returns prusalink false when only camera changes", () => {
-    const next = { ...base, camera: { ...base.camera, rtspUrl: "rtsp://new/live" } };
+    const next = {
+      ...base,
+      camera: { ...base.camera, rtspUrl: "rtsp://new/live" },
+    };
     expect(diffConfig(base, next).prusalink).toBe(false);
   });
 
