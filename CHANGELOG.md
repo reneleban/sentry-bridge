@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 These apply as soon as you pull the new image, even if you keep your compose file:
 
-- **Access through a DNS name containing a dot is rejected with 403** unless the name is listed in the new `ALLOWED_HOSTS` environment variable. This affects reverse proxies, Tailscale MagicDNS and names like `printer.fritz.box`. IP addresses, `localhost`, single-label names and `*.local` keep working. (#93)
+- **Access through a DNS name containing a dot is rejected with 403** unless the name is listed in the new `ALLOWED_HOSTS` environment variable. This affects reverse proxies, Tailscale MagicDNS and local DNS names such as `printer.lan`. IP addresses, `localhost`, single-label names and `*.local` keep working. (#93)
 - **`/config` is handed to uid 1000 on start.** The container now runs as the unprivileged `node` user and changes the owner of the config directory and the bridge's own files in it (not recursively) to uid/gid 1000 on the host. (#98)
 
 This applies when you take over the new `docker-compose.yml`:
@@ -24,7 +24,7 @@ This applies when you take over the new `docker-compose.yml`:
 
 - The container entrypoint no longer follows symlinks in `/config`: a link planted by the `node` user can no longer redirect root's `chown`/`chmod` to another file, or force the bridge to fall back to running as root. (#131)
 - The bridge, Janus and ffmpeg run as the unprivileged `node` user (uid 1000). On start the container hands `/config`, `config.json`, `print-state.json` and `file-sizes.json` to that user (not recursively) and keeps `config.json` at mode `0600`, so existing installs migrate without manual steps. If ownership cannot be changed (NFS root_squash, rootless Docker), it keeps running as root and logs a warning. (#98)
-- Requests with an unknown `Host` header are rejected (403). **BREAKING:** access through a DNS name containing a dot (reverse proxy, Tailscale MagicDNS, `*.fritz.box`) requires the name in the new `ALLOWED_HOSTS` environment variable; IP addresses, `localhost`, single-label and `*.local` names keep working. (#93)
+- Requests with an unknown `Host` header are rejected (403). **BREAKING:** access through a DNS name containing a dot (reverse proxy, Tailscale MagicDNS, local DNS names such as `printer.lan`) requires the name in the new `ALLOWED_HOSTS` environment variable; IP addresses, `localhost`, single-label and `*.local` names keep working. (#93)
 - Cross-site write requests (`POST`/`PUT`/`DELETE` whose `Origin` does not match `Host`) are rejected (403); a reverse proxy must pass the original `Host` header through. (#93)
 - No API response returns the stored PrusaLink password or Obico API key. Empty secret fields in the dashboard and wizard keep the stored value, and a stored secret is only reused for the same PrusaLink host and user or the same Obico server. Changing the Obico server URL now requires a new pairing. (#75)
 - `GET /api/config` no longer returns RTSP credentials or characters of stored secrets. (#91)
