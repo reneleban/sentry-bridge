@@ -20,6 +20,8 @@ Not documented.
 ## Acceptance Criteria
 
 - With a wrong PrusaLink password the dashboard shows the credentials check as failed with a fix hint while the bridge keeps running; "Re-check" re-runs all checks.
+- A failed camera check is retried once after 15 s, because the camera may not have delivered its first frame right after container start (#120).
+- The Obico reachability check fails if the server does not answer within 5 s.
 
 ## Related ADRs
 

@@ -190,28 +190,26 @@ Pass
 
 ---
 
-## TC-007: SSRF Mitigation — file_downloader.download Rejects External URL
+## TC-007: SSRF Mitigation — file_downloader.download Rejects Non-HTTP(S) URL
 
 **Test File:** `src/__tests__/obico-agent.test.ts`
 **Level:** Unit
 **Module:** Obico Agent
-**Requirement:** [REQ-0018](../requirements/05_anforderungen/REQ-0018-download-origin-validation.md) (SSRF mitigation)
+**Requirement:** [REQ-0018](../requirements/05_anforderungen/REQ-0018-download-origin-validation.md), [REQ-0031](../requirements/05_anforderungen/REQ-0031-ssrf-mitigation-for-file-download.md) (scheme check; origin check is an open question, #140)
 
 ### Preconditions
 
-- Agent configured with `obicoServerUrl: "http://obico.local"`
-- Mock WS server running
+- Mock WS server running, agent connected
 
 ### Steps
 
-1. Mock WS server sends: `{ passthru: { ref: "ref-002", func: "file_downloader.download", kwargs: { url: "http://attacker.example.com/malicious.gcode" } } }`
-2. Agent checks origin of URL against configured `obicoServerUrl`
-3. Origin mismatch detected
+1. Mock WS server sends: `{ passthru: { target: "file_downloader", func: "download", ref: "R6", args: [{ url: "file:///etc/passwd", safe_filename: "passwd.gcode", id: 1, filename: "passwd.gcode" }] } }`
+2. Agent checks the URL scheme (`http:`/`https:` only)
 
 ### Expected Result
 
-- `fetch` is NOT called with the attacker URL
-- Passthru ACK sent with error: `{ passthru: { ref: "ref-002", ret: { error: "SSRF check failed" } } }`
+- `uploadFile()` and `startPrint()` are NOT called
+- Passthru response with `ref: "R6"` carries an `error`
 
 ### Actual Result (v1.1.0)
 
@@ -283,7 +281,7 @@ Pass
 **Test File:** `src/__tests__/files-routes.test.ts`
 **Level:** Integration (HTTP route)
 **Module:** Files API + PrusaLink Client
-**Requirement:** [REQ-0016](../requirements/05_anforderungen/REQ-0016-octoprint-file-endpoints.md) (file upload up to 200 MB without OOM)
+**Requirement:** [REQ-0015](../requirements/05_anforderungen/REQ-0015-file-management.md), [REQ-0024](../requirements/05_anforderungen/REQ-0024-file-upload-throughput.md) (dashboard file upload without OOM)
 
 ### Preconditions
 
@@ -293,7 +291,7 @@ Pass
 
 ### Steps
 
-1. POST `/api/files/` with `multipart/form-data`, `file` field = test gcode Buffer
+1. POST `/api/files/upload` with `multipart/form-data`, `file` field = test gcode Buffer
 2. Assert multer wrote file to `/tmp` (not memory)
 3. Assert `client.uploadFile()` called with the tmp file path
 4. Assert response: 201 `{ ok: true, name: "test.gcode" }`

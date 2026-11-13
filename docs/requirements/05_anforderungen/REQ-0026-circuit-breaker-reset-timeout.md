@@ -19,7 +19,7 @@ Not documented.
 
 ## Acceptance Criteria
 
-- Circuit breaker transitions to HALF-OPEN after 60 000 ms; if the probe succeeds, it transitions to CLOSED
+- Circuit breaker transitions to HALF-OPEN after `CIRCUIT_BREAKER_RESET_TIMEOUT_MS` (default 60 000 ms, configurable via environment variable); if the probe succeeds, it transitions to CLOSED
 
 ## Related ADRs
 

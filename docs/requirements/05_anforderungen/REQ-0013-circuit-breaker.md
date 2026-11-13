@@ -11,7 +11,7 @@ priority: Not documented
 
 ## Description
 
-The system shall apply circuit breaker protection to the PrusaLink, Obico WebSocket, and camera connections.
+The system shall apply circuit breaker protection to the PrusaLink, Obico WebSocket, Obico frame upload, and camera connections (breakers `prusalink`, `obico_ws`, `obico_frames`, `camera`).
 
 ## Rationale
 
@@ -19,9 +19,9 @@ Not documented.
 
 ## Acceptance Criteria
 
-- After 5 consecutive failures on a connection, the circuit breaker opens.
+- After `CIRCUIT_BREAKER_THRESHOLD` consecutive failures (default 5) on a connection, the circuit breaker opens.
 - The dashboard health UI reflects the open state.
-- The breaker resets after 60 s or on manual reconnect.
+- The breaker resets after `CIRCUIT_BREAKER_RESET_TIMEOUT_MS` (default 60 000 ms) or on manual reconnect.
 
 ## Related ADRs
 

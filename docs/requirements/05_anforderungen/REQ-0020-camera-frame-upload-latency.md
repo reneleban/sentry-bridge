@@ -19,7 +19,7 @@ Not documented.
 
 ## Acceptance Criteria
 
-- End-to-end latency from RTSP capture to Obico HTTP POST completion ≤ 2 s at the default frame interval of 2 s
+- End-to-end latency from RTSP capture to Obico HTTP POST completion ≤ 2 s at the default frame interval of 10 s; a frame upload that does not complete within 15 s is aborted
 
 ## Related ADRs
 

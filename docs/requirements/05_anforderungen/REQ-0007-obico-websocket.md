@@ -20,6 +20,7 @@ Not documented.
 ## Acceptance Criteria
 
 - After an initial pairing, the bridge reconnects automatically within 60 s of a WebSocket disconnect without manual intervention.
+- After the Obico circuit breaker opened, the bridge reconnects on its own once Obico is reachable again, without a restart (#127).
 
 ## Related ADRs
 

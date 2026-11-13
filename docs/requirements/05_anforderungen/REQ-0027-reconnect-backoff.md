@@ -19,7 +19,8 @@ Not documented.
 
 ## Acceptance Criteria
 
-- Reconnect delay starts at 1 000 ms, doubles per attempt, caps at 30 000 ms
+- Reconnect delay starts at `RETRY_BASE_DELAY_MS` (default 1 000 ms), doubles per attempt, caps at `RETRY_MAX_DELAY_MS` (default 30 000 ms); both are configurable via environment variables.
+- After the Obico circuit breaker opened (e.g. Obico server down for an update), the WebSocket reconnects on its own once Obico is reachable again, without a container restart (#127).
 
 ## Related ADRs
 

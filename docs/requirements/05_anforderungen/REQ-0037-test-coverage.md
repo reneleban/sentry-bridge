@@ -19,7 +19,7 @@ Not documented.
 
 ## Acceptance Criteria
 
-- Backend test suite: ≥ 200 unit tests (210+ as of v1.1.0); TDD enforced for Config, PrusaLink Client, and Obico Agent modules
+- Backend test suite: ≥ 200 unit tests; TDD enforced for Config, PrusaLink Client, and Obico Agent modules
 
 ## Related ADRs
 

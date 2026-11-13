@@ -11,7 +11,7 @@ priority: Not documented
 
 ## Description
 
-The system shall expose OctoPrint-compatible file management endpoints (`GET /api/files`, `POST /api/files`, `DELETE /api/files/{path}`) to support Obico's remote file browser.
+The system shall expose the OctoPrint-compatible file list `GET /api/files` through the Obico HTTP tunnel so that Obico's file dialog can list the printer's files. Upload (`POST /api/files/upload`), print and delete are LAN-only (REQ-0015) and are not reachable through the tunnel (REQ-0032).
 
 ## Rationale
 
@@ -20,7 +20,7 @@ Not documented.
 ## Acceptance Criteria
 
 - Obico's file browser tab shows the printer's file list.
-- File upload via Obico completes for files up to 200 MB without an out-of-memory error.
+- Tunnel requests other than `GET /api/files` (e.g. `POST /api/files/upload`, `DELETE /api/files/{name}`) are rejected.
 
 ## Related ADRs
 

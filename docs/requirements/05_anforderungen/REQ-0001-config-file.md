@@ -19,7 +19,7 @@ Not documented.
 
 ## Acceptance Criteria
 
-- `GET /api/config` returns the current configuration.
+- `GET /api/config` returns the current configuration with secrets replaced by hints (REQ-0033).
 - After editing and saving, the bridge reloads the new config without container restart.
 
 ## Related ADRs

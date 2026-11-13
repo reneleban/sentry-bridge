@@ -23,7 +23,7 @@ One file per requirement (`REQ-NNNN-<slug>.md`). IDs are numbered in the order o
 | [REQ-0015](REQ-0015-file-management.md)                   | SRS-015   | G-code file management                | functional     | verified       |
 | [REQ-0016](REQ-0016-octoprint-file-endpoints.md)          | SRS-016   | OctoPrint-compatible file endpoints   | functional     | verified       |
 | [REQ-0017](REQ-0017-obico-print-start.md)                 | SRS-017   | Print start from Obico                | functional     | verified       |
-| [REQ-0018](REQ-0018-download-origin-validation.md)        | SRS-018   | Download URL origin validation        | functional     | verified       |
+| [REQ-0018](REQ-0018-download-origin-validation.md)        | SRS-018   | Download URL scheme validation        | functional     | verified       |
 | [REQ-0019](REQ-0019-startup-checks.md)                    | SRS-019   | Startup and on-demand checks          | functional     | verified       |
 | [REQ-0020](REQ-0020-camera-frame-upload-latency.md)       | NFR-P01   | Camera frame upload latency           | non-functional | Not documented |
 | [REQ-0021](REQ-0021-printer-status-poll-interval.md)      | NFR-P02   | Printer status poll interval          | non-functional | Not documented |
@@ -44,3 +44,8 @@ One file per requirement (`REQ-NNNN-<slug>.md`). IDs are numbered in the order o
 | [REQ-0036](REQ-0036-no-database-dependency.md)            | NFR-PO03  | No database dependency                | non-functional | Not documented |
 | [REQ-0037](REQ-0037-test-coverage.md)                     | NFR-M01   | Test coverage                         | non-functional | Not documented |
 | [REQ-0038](REQ-0038-module-boundaries.md)                 | NFR-M02   | Module boundaries                     | non-functional | Not documented |
+| [REQ-0039](REQ-0039-host-and-origin-guard.md)             | none      | Host and Origin request guard         | non-functional | implemented    |
+| [REQ-0040](REQ-0040-unprivileged-container-user.md)       | none      | Unprivileged container user           | non-functional | implemented    |
+| [REQ-0041](REQ-0041-prusalink-request-timeouts.md)        | none      | PrusaLink request timeouts            | non-functional | implemented    |
+| [REQ-0042](REQ-0042-janus-network-deployment.md)          | none      | Janus network deployment              | non-functional | implemented    |
+| [REQ-0043](REQ-0043-environment-configuration.md)         | none      | Environment configuration             | non-functional | implemented    |

@@ -21,18 +21,20 @@ PrusaLink is the embedded HTTP API on Prusa printers with Buddy board firmware (
 
 ### Endpoints Used by SentryBridge
 
-| Method | Path                         | Purpose                                               | Response                         |
-| ------ | ---------------------------- | ----------------------------------------------------- | -------------------------------- |
-| GET    | `/api/v1/status`             | Printer telemetry (state, temperatures, axes, speeds) | 200 JSON                         |
-| GET    | `/api/v1/job`                | Active job info                                       | 200 JSON (printing) / 204 (idle) |
-| GET    | `/api/v1/info`               | Printer identity (hostname, serial, nozzle)           | 200 JSON                         |
-| PUT    | `/api/v1/job/{id}/pause`     | Pause active print                                    | 204                              |
-| PUT    | `/api/v1/job/{id}/resume`    | Resume paused print                                   | 204                              |
-| DELETE | `/api/v1/job/{id}`           | Cancel and delete active print                        | 204                              |
-| GET    | `/api/v1/files`              | List files on USB storage                             | 200 JSON                         |
-| POST   | `/api/v1/files`              | Upload G-code file (multipart)                        | 201                              |
-| POST   | `/api/v1/files/{path}/print` | Start printing a file                                 | 204                              |
-| DELETE | `/api/v1/files/{path}`       | Delete a file                                         | 204                              |
+| Method | Path                       | Purpose                                               | Response                         |
+| ------ | -------------------------- | ----------------------------------------------------- | -------------------------------- |
+| GET    | `/api/v1/status`           | Printer telemetry (state, temperatures, axes, speeds) | 200 JSON                         |
+| GET    | `/api/v1/job`              | Active job info                                       | 200 JSON (printing) / 204 (idle) |
+| GET    | `/api/v1/info`             | Printer identity (hostname, serial, nozzle)           | 200 JSON                         |
+| PUT    | `/api/v1/job/{id}/pause`   | Pause active print                                    | 204                              |
+| PUT    | `/api/v1/job/{id}/resume`  | Resume paused print                                   | 204                              |
+| DELETE | `/api/v1/job/{id}`         | Cancel and delete active print                        | 204                              |
+| GET    | `/api/v1/files/usb/`       | List files on USB storage                             | 200 JSON                         |
+| GET    | `/api/v1/files/usb/{name}` | File info (size lookup for the file-size cache)       | 200 JSON                         |
+| PUT    | `/api/v1/files/usb/{name}` | Upload G-code file (raw body)                         | 201                              |
+| HEAD   | `/api/v1/files/usb/{name}` | Check that a file exists before printing              | 200                              |
+| POST   | `/api/v1/files/usb/{name}` | Start printing a file                                 | 204                              |
+| DELETE | `/api/v1/files/usb/{name}` | Delete a file                                         | 204                              |
 
 ### Status Response Schema
 
@@ -137,7 +139,7 @@ The `auth_token` (nested under `printer.auth_token`) is stored as `apiKey` in `c
 }
 ```
 
-#### Printer Status Update (every 30 s, and on state change)
+#### Printer Status Update (every poll interval, default 5 s)
 
 ```json
 {
@@ -252,7 +254,7 @@ Fields:
 }
 ```
 
-Bridge proxies the request to its own Express API (`http://localhost:{PORT}{path}`) and returns the response. Only `/api/*` paths are allowed (EoP mitigation).
+Bridge proxies the request to its own Express API (`http://localhost:{PORT}{path}`) and returns the response. Only an explicit allow-list is proxied: `GET /api/files` (the OctoPrint-shaped file list) and the `GET /` link page; every other method/path is rejected (EoP mitigation, see REQ-0032 and ADR-0010).
 
 ---
 
@@ -267,7 +269,9 @@ SentryBridge exposes a REST API consumed by the React frontend. The full machine
 | GET    | `/api/health/`               | Detailed health status for all components        |
 | GET    | `/api/health/live`           | Liveness probe (Docker HEALTHCHECK)              |
 | GET    | `/api/health/ready`          | Readiness probe (503 if critical component DOWN) |
-| GET    | `/api/config`                | Read current configuration                       |
+| GET    | `/api/boot-checks`           | Last startup/on-demand check results             |
+| POST   | `/api/boot-checks`           | Re-run startup checks                            |
+| GET    | `/api/config`                | Read current configuration (secrets masked)      |
 | POST   | `/api/setup/save`            | Save configuration and restart bridge            |
 | GET    | `/api/status/stream`         | SSE stream of printer + bridge status            |
 | GET    | `/api/printer/info`          | Printer name/hostname                            |
@@ -279,9 +283,9 @@ SentryBridge exposes a REST API consumed by the React frontend. The full machine
 | POST   | `/api/wizard/verify-pairing` | Verify Obico pairing code                        |
 | GET    | `/api/wizard/configured`     | Check if bridge is configured                    |
 | GET    | `/api/files/`                | List G-code files (OctoPrint-compatible)         |
-| POST   | `/api/files/`                | Upload G-code file                               |
+| POST   | `/api/files/upload`          | Upload G-code file                               |
 | POST   | `/api/files/:filename/print` | Start print                                      |
 | DELETE | `/api/files/:filename`       | Delete file                                      |
-| GET    | `/stream/mjpeg`              | MJPEG live stream                                |
+| GET    | `/stream`                    | MJPEG live stream                                |
 
 See [`api.yaml`](./api.yaml) for request/response schemas, status codes, and examples.

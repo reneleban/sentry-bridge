@@ -499,7 +499,7 @@ paths:
     get:
       tags: [files]
       summary: List G-code files
-      description: Lists files on PrusaLink USB storage in OctoPrint-compatible format. Used by Obico's file browser (http.tunnelv2 passthru).
+      description: Lists files on PrusaLink USB storage in OctoPrint-compatible format. Used by Obico's file dialog via http.tunnelv2; this is the only endpoint reachable through the tunnel.
       operationId: listFiles
       responses:
         "200":
@@ -515,6 +515,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/files/upload:
     post:
       tags: [files]
       summary: Upload G-code file
@@ -620,7 +621,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /stream/mjpeg:
+  /stream:
     get:
       tags: [stream]
       summary: MJPEG live stream

@@ -19,7 +19,7 @@ Not documented.
 
 ## Acceptance Criteria
 
-- All persistent state is stored in `/config/config.json` — no external database required
+- All persistent state is stored as files in `/config`: `config.json` (configuration), `print-state.json` (current print start) and `file-sizes.json` (cached file sizes) — no external database required
 
 ## Related ADRs
 

@@ -19,7 +19,7 @@ Not documented.
 
 ## Acceptance Criteria
 
-- Status JSON sent to Obico WebSocket every 30 s (routine) and immediately on printer state change
+- Status JSON is sent to the Obico WebSocket on every PrusaLink poll tick (`polling.statusIntervalMs`, default 5 000 ms), so a printer state change reaches Obico within one poll interval; no separate routine timer exists.
 
 ## Related ADRs
 

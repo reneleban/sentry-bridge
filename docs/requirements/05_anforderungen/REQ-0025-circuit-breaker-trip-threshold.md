@@ -19,7 +19,7 @@ Not documented.
 
 ## Acceptance Criteria
 
-- After 5 consecutive failures, the circuit breaker opens and stops sending requests to the failing component
+- After `CIRCUIT_BREAKER_THRESHOLD` consecutive failures (default 5, configurable via environment variable), the circuit breaker opens and stops sending requests to the failing component
 
 ## Related ADRs
 

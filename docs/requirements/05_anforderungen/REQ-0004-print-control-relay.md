@@ -21,6 +21,7 @@ Not documented.
 
 - Sending a pause command from Obico causes the printer state to transition to PAUSED within 10 s.
 - Resume and cancel behave equivalently.
+- A failed pause, resume or cancel is reported back to Obico and shown as a dashboard warning (#113); details in the error cases below.
 - Error cases:
   - (1) No active job (PrusaLink `GET /api/v1/job` returns 204): no command is sent; the bridge logs `[obico] <cmd> failed: No active job`.
   - (2) Invalid state transition, e.g. pausing an already paused job (PrusaLink returns 409): the bridge logs `Conflict: invalid state transition`; printer state is unchanged.
