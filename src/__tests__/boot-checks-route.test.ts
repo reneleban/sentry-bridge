@@ -36,7 +36,14 @@ beforeEach(() => {
   mockRunningCamera = null;
   mockTestStream.mockReset().mockResolvedValue(Buffer.from("jpeg"));
   global.fetch = jest.fn().mockResolvedValue({ status: 200 }) as never;
+  // Skip the camera retry delay (#120).
+  jest.spyOn(global, "setTimeout").mockImplementation(((fn: () => void) => {
+    fn();
+    return 0;
+  }) as never);
 });
+
+afterEach(() => jest.restoreAllMocks());
 
 describe("/api/boot-checks", () => {
   it("returns no results before the first run", async () => {

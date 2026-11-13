@@ -47,7 +47,7 @@ curl http://localhost:3000/api/boot-checks | jq .          # latest results
 curl -X POST http://localhost:3000/api/boot-checks | jq .  # run again now
 ```
 
-The bridge runs these checks once at startup, in the background; they never block or delay it. Each result is `{ "id", "ok", "hint" }` for `prusalink_reachable`, `prusalink_auth`, `camera_rtsp`, `obico_reachable` and `obico_paired`. `hint` is a fix-hint key (`null` when the check passed) and never contains credentials. `checkedAt` is `null` until the first run finishes. `POST` returns `409` when the bridge is not configured.
+The bridge runs these checks once at startup, in the background; they never block or delay it. Each result is `{ "id", "ok", "hint" }` for `prusalink_reachable`, `prusalink_auth`, `camera_rtsp`, `obico_reachable` and `obico_paired`. `hint` is a fix-hint key (`null` when the check passed) and never contains credentials. `checkedAt` is `null` until the first run finishes. A failed camera check is retried once after 15 s, so a camera that is still starting up does not show as unreachable. `POST` returns `409` when the bridge is not configured.
 
 ### Detailed per-component health
 

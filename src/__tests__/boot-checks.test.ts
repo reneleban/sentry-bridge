@@ -16,6 +16,7 @@ function deps(over: Partial<BootCheckDeps> = {}): BootCheckDeps {
     testPrusaLink: async () => ({ ok: true }),
     testCamera: async () => Buffer.from("jpeg"),
     reachObico: async () => undefined,
+    cameraRetryDelayMs: 0,
     ...over,
   };
 }
@@ -23,6 +24,22 @@ function deps(over: Partial<BootCheckDeps> = {}): BootCheckDeps {
 const byId = (r: BootCheckResult[], id: string) => r.find((c) => c.id === id)!;
 
 describe("runBootChecks", () => {
+  it("retries the camera once so a camera still starting up passes", async () => {
+    let calls = 0;
+    const r = await runBootChecks(
+      config,
+      deps({
+        testCamera: async () => {
+          calls += 1;
+          if (calls === 1) throw new Error("no recent frame");
+          return Buffer.from("jpeg");
+        },
+      })
+    );
+    expect(calls).toBe(2);
+    expect(byId(r, "camera_rtsp")).toMatchObject({ ok: true, hint: null });
+  });
+
   it("passes every check for a healthy setup", async () => {
     const r = await runBootChecks(config, deps());
     expect(r.map((c) => c.id)).toEqual([

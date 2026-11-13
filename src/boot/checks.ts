@@ -31,7 +31,13 @@ export interface BootCheckDeps {
   testCamera(camera: Config["camera"]): Promise<unknown>;
   /** Resolves when the server answers any HTTP response, rejects otherwise. */
   reachObico(serverUrl: string): Promise<void>;
+  /** Wait before the single camera retry (#120). Default 15 s. */
+  cameraRetryDelayMs?: number;
 }
+
+// Right after container start the camera may not have delivered its first
+// frame yet (#120), so a failed camera probe is retried once after a delay.
+const CAMERA_RETRY_DELAY_MS = 15_000;
 
 // Defer each probe so a synchronous throw becomes a failed check.
 const attempt = <T>(fn: () => Promise<T>) => Promise.resolve().then(fn);
@@ -50,7 +56,13 @@ export async function runBootChecks(
       ok: false,
       reason: "unreachable" as const,
     })),
-    succeeds(() => deps.testCamera(config.camera)),
+    succeeds(() => deps.testCamera(config.camera)).then(
+      (ok) =>
+        ok ||
+        new Promise<void>((r) =>
+          setTimeout(r, deps.cameraRetryDelayMs ?? CAMERA_RETRY_DELAY_MS)
+        ).then(() => succeeds(() => deps.testCamera(config.camera)))
+    ),
     succeeds(() => deps.reachObico(config.obico.serverUrl)),
   ]);
 
