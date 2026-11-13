@@ -142,6 +142,16 @@ Start with the dashboard: at startup the bridge checks PrusaLink (reachable, cre
 
 ---
 
+## 9. Printing from Obico fails: "download url not allowed (host): …"
+
+**Symptom:** Starting a print from the Obico file list fails with `download url not allowed (host): <hostname>`.
+
+**Cause:** The bridge only downloads print files from the origin of the configured Obico server URL or from hosts you allowed explicitly (protection against requests into your network). Obico Cloud serves files from a storage host, and a self-hosted Obico behind a reverse proxy links files with its public domain, while the bridge may be paired with an internal address such as `http://obico-host:3334`.
+
+**Fix:** Open the bridge dashboard → settings, add the hostname from the error message to **Allowed download hosts** (one per line), save, and start the print again. See `downloadAllowedHosts` in [Configuration](../reference/configuration.md).
+
+---
+
 ## Not listed here?
 
 If your issue is not covered above, check the [container logs](#3-obico-pairing-never-confirms--wizard-step-3-waits-indefinitely) first, then open an issue at [github.com/reneleban/sentry-bridge](https://github.com/reneleban/sentry-bridge).
