@@ -351,7 +351,8 @@ export function createObicoAgent(
       const res = await fetchAllowedDownload(url);
       if (!res.ok) throw new Error(`download failed: ${res.status}`);
       const buf = Buffer.from(await res.arrayBuffer());
-      await dispatcher.uploadFile(cleanName, buf);
+      // Obico re-sends a file it printed before; replace the copy on USB (#145).
+      await dispatcher.uploadFile(cleanName, buf, { overwrite: true });
       fileSizes.invalidateList();
 
       await dispatcher.startPrint(cleanName);

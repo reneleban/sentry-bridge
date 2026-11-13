@@ -11,9 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The WebRTC stream passes the camera's H.264 video through instead of re-encoding it, cutting the container's CPU use from about 32 % to 11 % of one core and its memory from about 250 MB to 145 MB on a Core One. Janus now sends new viewers the latest keyframe right away, and the advertised H.264 level matches the camera (4.0). (#88)
 
+### Fixed
+
+- Obico no longer keeps showing "Printing" after a print finished or was stopped: FINISHED and STOPPED are reported as ready. (#144)
+- Printing a file from Obico a second time no longer fails with `uploadFile failed: 409`; the copy on the printer is replaced. (#145)
+
 ### Security
 
-- Print file downloads requested by Obico are only fetched from the configured Obico server origin or from hosts listed in the new `obico.downloadAllowedHosts` setting (dashboard settings, one host per line). Redirects are re-checked against the same rule. **Obico Cloud users must add the host their print files are served from to this list**, otherwise printing from Obico fails with a "download url not allowed" error. (#140)
+- Print file downloads requested by Obico are only fetched from the configured Obico server origin or from hosts listed in the new `obico.downloadAllowedHosts` setting (dashboard settings, one host per line). Redirects are re-checked against the same rule. **Obico Cloud users, and self-hosted setups where the bridge connects to an internal address while Obico links files via its public domain, must add that host to this list**, otherwise printing from Obico fails with a "download url not allowed" error. (#140)
 
 ## [2.0.0] - 2026-11-13
 

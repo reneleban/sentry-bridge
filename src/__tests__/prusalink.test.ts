@@ -378,6 +378,16 @@ describe("PrusaLinkClient", () => {
       expect(files[0].path).toBe("/usb/benchy.gcode");
     });
 
+    it("sends Overwrite: ?1 only when overwrite is requested (#145)", async () => {
+      mockFetch.mockResolvedValue(mockResponse(201));
+      const client = createPrusaLinkClient(config, fetcher);
+      const data = Buffer.from("fake gcode");
+      await client.uploadFile("benchy.gcode", data);
+      await client.uploadFile("benchy.gcode", data, { overwrite: true });
+      expect(mockFetch.mock.calls[0][1].headers.Overwrite).toBeUndefined();
+      expect(mockFetch.mock.calls[1][1].headers.Overwrite).toBe("?1");
+    });
+
     it("wirft bei non-2xx", async () => {
       mockFetch.mockResolvedValue(mockResponse(500));
       const client = createPrusaLinkClient(config, fetcher);
