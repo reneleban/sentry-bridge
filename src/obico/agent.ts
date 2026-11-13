@@ -322,6 +322,9 @@ export function createObicoAgent(
           ? res.headers.get("location")
           : null;
       if (!location) return res;
+      // Release the redirect's connection; a failed cancel must not stop
+      // redirect handling.
+      res.body?.cancel().catch(() => {});
       current = new URL(location, current);
     }
     throw new PassthruError("download failed: too many redirects");

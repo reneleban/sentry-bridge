@@ -108,7 +108,12 @@ router.post("/verify-pairing", async (req, res) => {
   try {
     config = resolveSetup({
       ...setup,
-      obico: { serverUrl: obicoServerUrl, apiKey: placeholder },
+      obico: {
+        // Re-pairing replaces only the key; keep the stored allow-list (#140).
+        ...tryLoadConfig()?.obico,
+        serverUrl: obicoServerUrl,
+        apiKey: placeholder,
+      },
     });
   } catch (err) {
     if (err instanceof SetupError || err instanceof SecretFallbackError) {
@@ -128,7 +133,7 @@ router.post("/verify-pairing", async (req, res) => {
     const apiKey = await agent.waitForPairing(obicoServerUrl, code);
     saveSetup({
       ...config,
-      obico: { ...config.obico, serverUrl: obicoServerUrl, apiKey },
+      obico: { ...config.obico, apiKey },
     });
     res.json({ ok: true, serverUrl: obicoServerUrl });
   } catch (err) {
