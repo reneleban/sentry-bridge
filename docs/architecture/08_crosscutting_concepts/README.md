@@ -4,7 +4,14 @@
 
 ### Circuit Breaker Pattern
 
-All three external components (PrusaLink, Obico WebSocket, Camera) are protected by a **Circuit Breaker** registered in `CircuitBreakerRegistry` (`src/lib/health.ts`).
+The external components are protected by **Circuit Breakers** registered in `CircuitBreakerRegistry` (`src/lib/health.ts`):
+
+| Key            | Protects                                                                                                       | Defined in                |
+| -------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `prusalink`    | All PrusaLink HTTP requests                                                                                    | `src/prusalink/client.ts` |
+| `camera`       | Spawning the MJPEG ffmpeg process                                                                              | `src/camera/camera.ts`    |
+| `obico_ws`     | The Obico WebSocket connection                                                                                 | `src/obico/agent.ts`      |
+| `obico_frames` | Frame uploads (`POST /api/v1/octo/pic/`); open → `obico_frames` health DEGRADED, the WebSocket is not affected | `src/obico/agent.ts`      |
 
 | Parameter         | Default   | Environment Variable               |
 | ----------------- | --------- | ---------------------------------- |
@@ -17,7 +24,7 @@ All three external components (PrusaLink, Obico WebSocket, Camera) are protected
 - **OPEN** — after `threshold` consecutive failures; requests are rejected immediately with `CircuitOpenError`. No traffic reaches the failing component.
 - **HALF-OPEN** — after `resetTimeout` ms; one probe request is sent. If successful, transitions to CLOSED. If it fails, transitions back to OPEN.
 
-**Circuit Breaker keys:** `"prusalink"`, `"obico_ws"`, `"camera"`.
+**Circuit Breaker keys:** `"prusalink"`, `"camera"`, `"obico_ws"`, `"obico_frames"`.
 
 ### Retry with Exponential Backoff
 
@@ -48,7 +55,7 @@ The Obico Agent reconnects automatically on WebSocket disconnect using exponenti
 
 ### Config-on-Volume
 
-All runtime configuration is stored in a single JSON file at `/config/config.json` on a Docker volume. No database, no external state store.
+All runtime configuration is stored in a single JSON file at `/config/config.json` on a Docker volume. No database, no external state store. Runtime state that must survive a restart is kept next to it in `print-state.json` and `file-sizes.json` (ADR-0015).
 
 **Config schema:**
 
@@ -65,7 +72,7 @@ All runtime configuration is stored in a single JSON file at `/config/config.jso
 
 ### Hot-Reload
 
-Config changes (saved via the dashboard) trigger a `configChanged` event via `configEmitter` (Node.js `EventEmitter`). The Bridge Orchestrator listens for this event, tears down all active connections, and reinitialises with the new configuration — without requiring a container restart.
+Config changes (saved via the dashboard) trigger a `config-changed` event via `configEmitter` (Node.js `EventEmitter`). The Bridge Orchestrator listens for this event, tears down all active connections, and reinitialises with the new configuration — without requiring a container restart.
 
 ---
 
@@ -81,12 +88,16 @@ Input validation occurs at system boundaries:
 - **Pairing key stays in the backend**: `POST /api/wizard/verify-pairing` receives the setup, pairs, and saves the config with the new API key itself; the response does not contain the key.
 - `POST /api/control` validates the `action` field against an allowlist `["pause", "resume", "cancel"]`.
 
+### Request Guard (Host/Origin)
+
+`requestGuard()` (`src/lib/request-guard.ts`) is mounted before all routes and static files (ADR-0013). It answers `403` when the `Host` header is not an IP literal, a single-label name, a `*.local` name or listed in `ALLOWED_HOSTS` (DNS rebinding), and, for methods other than GET/HEAD/OPTIONS, when `Sec-Fetch-Site` is present and not `same-origin`/`none` or `Origin` differs from `Host` (CSRF). It is not authentication.
+
 ### Security Guards (http.tunnel)
 
-The `http.tunnelv2` Obico passthru handler enforces:
+The `http.tunnelv2` Obico passthru handler (`src/obico/tunnel.ts`, ADR-0010) receives BSON binary frames and answers with BSON frames whose content is zlib-compressed from 1000 bytes. It enforces:
 
-- **Path guard**: only `/api/*` paths are proxied — prevents use as a general HTTP proxy (EoP mitigation).
-- **Method guard**: only `GET`, `POST`, `PUT`, `DELETE` are allowed.
+- **Path guard**: `GET /` returns a static LAN-only page; otherwise only the allow-listed `GET /api/files` is proxied to the local server, in canonical form — prevents use as a general HTTP proxy (EoP mitigation).
+- **Method guard**: only `GET`, `POST`, `DELETE` pass the method check (`405` otherwise).
 - **SSRF mitigation**: `file_downloader.download` only accepts URLs whose origin matches the configured Obico server URL.
 
 ### Error Responses
@@ -106,15 +117,20 @@ All API routes return `{ message: string }` on errors. HTTP status codes follow 
 
 SentryBridge uses `console.log` / `console.error` with structured prefixes:
 
-| Prefix          | Module              |
-| --------------- | ------------------- |
-| `[bridge]`      | Bridge Orchestrator |
-| `[prusalink]`   | PrusaLink Client    |
-| `[camera]`      | Camera Module       |
-| `[obico]`       | Obico Agent         |
-| `[janus]`       | Janus Manager       |
-| `[janus-relay]` | Janus Relay         |
-| `[health]`      | Health Monitor      |
+| Prefix          | Module                      |
+| --------------- | --------------------------- |
+| `[bridge]`      | Bridge Orchestrator         |
+| `[camera]`      | Camera Module               |
+| `[obico]`       | Obico Agent                 |
+| `[janus]`       | Janus Manager               |
+| `[janus-relay]` | Janus Relay                 |
+| `[file-sizes]`  | File-size cache             |
+| `[config]`      | Config Module               |
+| `[shutdown]`    | Shutdown handler            |
+| `[index]`       | Process entry point         |
+| `[entrypoint]`  | Container entrypoint script |
+
+The PrusaLink client and the health monitor do not log with their own prefix.
 
 All output goes to stdout/stderr and is available via `docker logs`. No log rotation or structured JSON logging in the current version.
 

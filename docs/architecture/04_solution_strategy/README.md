@@ -30,5 +30,5 @@ All three external connections are wrapped in a Circuit Breaker (via `circuitBre
 
 - No API authentication — LAN-only risk accepted in current version; API auth is a known future item
 - SSRF mitigation on `file_downloader.download` — only URLs from the configured Obico server origin are accepted
-- EoP mitigation on `http.tunnelv2` — only `/api/*` paths are forwarded; bridge cannot be used as a general proxy
-- zlib compression on tunnel payloads ≥ 1000 bytes — prevents large uncompressed payloads
+- EoP mitigation on `http.tunnelv2` — only an allow-list of `/api/*` endpoints is forwarded (ADR-0010); bridge cannot be used as a general proxy
+- BSON tunnel frames with zlib compression on payloads ≥ 1000 bytes — same encoding as moonraker-obico

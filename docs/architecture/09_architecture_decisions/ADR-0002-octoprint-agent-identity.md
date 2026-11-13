@@ -33,4 +33,4 @@ Hardcoded version `2.1.0` matches the Moonraker agent version whose protocol was
 
 - **Positive:** Full Obico feature set including WebRTC stream in control panel. Mature, documented protocol.
 - **Negative:** If Obico updates the Moonraker protocol in a breaking way, SentryBridge must update its implementation. The hardcoded version string may need updating.
-- **Implementation note:** Agent identity is set in `src/obico/agent.ts` — see `printer_info` message payload.
+- **Implementation note:** The WebSocket connects to `/ws/dev/` (served by `OctoPrintConsumer`) and uses the OctoPrint-compatible `/api/v1/octo/` REST endpoints. The agent identity is sent by `updateAgentInfo()` in `src/obico/agent.ts`: `PATCH /api/v1/octo/printer/` with `{ agent_name: "moonraker_obico", agent_version: "2.1.0" }`, called from `src/bridge.ts` after the agent starts. There is no `printer_info` message.
