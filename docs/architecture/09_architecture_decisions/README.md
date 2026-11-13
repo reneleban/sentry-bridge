@@ -1,4 +1,4 @@
-# Chapter 9: Architecture Decisions
+# 9. Architecture Decisions
 
 Architecture decisions are recorded as Architecture Decision Records (ADRs) in MADR format. ADR files live in this folder.
 

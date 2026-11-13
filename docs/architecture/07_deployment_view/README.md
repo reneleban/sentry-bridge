@@ -1,4 +1,4 @@
-# Chapter 7: Deployment View
+# 7. Deployment View
 
 ## Infrastructure
 
@@ -8,21 +8,21 @@ SentryBridge runs as a **single Docker container** on the user's LAN. One contai
 graph TD
     subgraph LAN["Local Area Network"]
         subgraph Container["Docker Container: sentrybridge"]
-            Express["Express HTTP Server\n(port 3000)"]
-            Bridge["Bridge Orchestrator\n(bridge.ts)"]
-            PrusaClient["PrusaLink Client\n(HTTP Digest Auth)"]
-            Camera["Camera Module\n(ffmpeg RTSP)"]
-            ObicoAgent["Obico Agent\n(WebSocket)"]
-            Janus["Janus WebRTC Gateway\n(bundled, ports 10100–10200 UDP)"]
-            Config["Config Volume /config\n(config.json, print-state.json,\nfile-sizes.json)"]
+            Express["Express HTTP Server<br/>(port 3000)"]
+            Bridge["Bridge Orchestrator<br/>(bridge.ts)"]
+            PrusaClient["PrusaLink Client<br/>(HTTP Digest Auth)"]
+            Camera["Camera Module<br/>(ffmpeg RTSP)"]
+            ObicoAgent["Obico Agent<br/>(WebSocket)"]
+            Janus["Janus WebRTC Gateway<br/>(bundled, ports 10100–10200 UDP)"]
+            Config["Config Volume /config<br/>(config.json, print-state.json,<br/>file-sizes.json)"]
         end
 
-        Printer["Prusa Core One\n(PrusaLink HTTP API)\nrtsp://[ip]/live"]
-        Browser["User Browser\nhttp://[host]:3000"]
+        Printer["Prusa Core One<br/>(PrusaLink HTTP API)<br/>rtsp://[ip]/live"]
+        Browser["User Browser<br/>http://[host]:3000"]
     end
 
     subgraph Internet["Internet (or LAN self-hosted)"]
-        Obico["Obico Server\nwss://{server}/ws/dev/"]
+        Obico["Obico Server<br/>wss://{server}/ws/dev/"]
     end
 
     Browser -- "HTTP :3000" --> Express

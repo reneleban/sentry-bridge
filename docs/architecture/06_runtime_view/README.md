@@ -1,4 +1,4 @@
-# Chapter 6: Runtime View
+# 6. Runtime View
 
 This chapter documents nine key runtime scenarios that illustrate how SentryBridge behaves during operation. Each scenario is shown as a Mermaid sequence diagram.
 

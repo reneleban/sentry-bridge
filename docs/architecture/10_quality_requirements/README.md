@@ -1,4 +1,4 @@
-# Chapter 10: Quality Goals
+# 10. Quality Requirements
 
 The following quality goals drive SentryBridge's architecture, listed in priority order.
 

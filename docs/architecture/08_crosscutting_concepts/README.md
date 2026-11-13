@@ -1,4 +1,4 @@
-# Chapter 8: Cross-Cutting Concepts
+# 8. Cross-Cutting Concepts
 
 ## 8.1 Resilience
 
