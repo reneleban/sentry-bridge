@@ -195,7 +195,7 @@ Pass
 **Test File:** `src/__tests__/obico-agent.test.ts`
 **Level:** Unit
 **Module:** Obico Agent
-**Requirement:** [REQ-0018](../requirements/05_anforderungen/REQ-0018-download-origin-validation.md), [REQ-0031](../requirements/05_anforderungen/REQ-0031-ssrf-mitigation-for-file-download.md) (scheme check; origin check is an open question, #140)
+**Requirement:** [REQ-0018](../requirements/05_anforderungen/REQ-0018-download-origin-validation.md), [REQ-0031](../requirements/05_anforderungen/REQ-0031-ssrf-mitigation-for-file-download.md) (scheme and origin checks, #140)
 
 ### Preconditions
 

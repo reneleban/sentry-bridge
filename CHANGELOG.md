@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Print file downloads requested by Obico are only fetched from the configured Obico server origin or from hosts listed in the new `obico.downloadAllowedHosts` setting (dashboard settings, one host per line). Redirects are re-checked against the same rule. **Obico Cloud users must add the host their print files are served from to this list**, otherwise printing from Obico fails with a "download url not allowed" error. (#140)
+
 ## [2.0.0] - 2026-11-13
 
 ### ⚠ Breaking changes

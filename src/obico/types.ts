@@ -8,6 +8,8 @@ export interface ObicoAgentConfig {
   /** Base URL of the bridge UI on the LAN, e.g. http://192.168.1.50:3000 */
   bridgeUrl?: string;
   localPort?: number;
+  /** Extra hostnames (exact, case-insensitive) file downloads may come from (#140). */
+  downloadAllowedHosts?: string[];
 }
 
 export interface HttpFetcher {

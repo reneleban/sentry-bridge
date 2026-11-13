@@ -3,6 +3,21 @@ import { assertRtspUrl, RtspUrlError } from "../config/rtsp";
 import { mergeStoredSecrets } from "../config/secrets";
 import { startBridge } from "../bridge";
 
+/** #140: optional list of extra download hosts, trimmed and lower-cased. */
+function normalizeAllowedHosts(hosts: unknown): {
+  downloadAllowedHosts?: string[];
+} {
+  if (hosts === undefined) return {};
+  if (!Array.isArray(hosts) || !hosts.every((h) => typeof h === "string")) {
+    throw new SetupError("obico.downloadAllowedHosts must be a list of hosts");
+  }
+  return {
+    downloadAllowedHosts: [
+      ...new Set(hosts.map((h) => h.trim().toLowerCase()).filter(Boolean)),
+    ],
+  };
+}
+
 /** The config to save, with empty secrets filled from the stored config. */
 export function resolveSetup(body: Partial<Config>): Config {
   const merged = mergeStoredSecrets(body, tryLoadConfig());
@@ -29,7 +44,11 @@ export function resolveSetup(body: Partial<Config>): Config {
       rtspUrl: merged.camera.rtspUrl,
       frameIntervalSeconds: merged.camera.frameIntervalSeconds ?? 10,
     },
-    obico: merged.obico,
+    obico: {
+      serverUrl: merged.obico.serverUrl,
+      apiKey: merged.obico.apiKey,
+      ...normalizeAllowedHosts(merged.obico.downloadAllowedHosts),
+    },
     polling: merged.polling ?? { statusIntervalMs: 5000 },
   };
 }

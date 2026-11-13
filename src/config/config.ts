@@ -8,7 +8,12 @@ export interface Config {
   name?: string;
   prusalink: { url: string; username: string; password: string };
   camera: { rtspUrl: string; frameIntervalSeconds: number };
-  obico: { serverUrl: string; apiKey: string };
+  obico: {
+    serverUrl: string;
+    apiKey: string;
+    /** Extra hostnames file downloads may come from (#140). */
+    downloadAllowedHosts?: string[];
+  };
   polling: { statusIntervalMs: number };
   shutdown?: { ffmpegKillTimeoutSeconds: number };
   bridgeUrl?: string;
