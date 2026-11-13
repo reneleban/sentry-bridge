@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- The container entrypoint no longer follows symlinks in `/config`: a link planted by the `node` user can no longer redirect root's `chown`/`chmod` to another file, or force the bridge to fall back to running as root. (#131)
 - The bridge, Janus and ffmpeg run as the unprivileged `node` user (uid 1000). On start the container hands `/config`, `config.json` and `print-state.json` to that user (not recursively) and keeps `config.json` at mode `0600`, so existing installs migrate without manual steps. If ownership cannot be changed (NFS root_squash, rootless Docker), it keeps running as root and logs a warning. (#98)
 - Requests with an unknown `Host` header are rejected (403). **BREAKING:** access through a DNS name containing a dot (reverse proxy, Tailscale MagicDNS, `*.fritz.box`) requires the name in the new `ALLOWED_HOSTS` environment variable; IP addresses, `localhost`, single-label and `*.local` names keep working. (#93)
 - Cross-site write requests (`POST`/`PUT`/`DELETE` whose `Origin` does not match `Host`) are rejected (403); a reverse proxy must pass the original `Host` header through. (#93)
