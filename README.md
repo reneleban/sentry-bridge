@@ -143,7 +143,7 @@ services:
 
 Open `http://<JANUS_HOST_IP>:3000` and `http://<JANUS_HOST_IP>:3001` and run the Setup Wizard once per printer.
 
-Footprint per container (measured): about 210 MB RAM and about a third of one CPU core, mostly ffmpeg for the camera. The image (~625 MB) is stored once on disk and shared by all containers.
+Footprint per container (measured): about 150 MB RAM and about 10–15 % of one CPU core, mostly ffmpeg converting camera frames to JPEG (measured on a Core One, v2.1.0). The image (~625 MB) is stored once on disk and shared by all containers.
 
 ## Configuration
 
