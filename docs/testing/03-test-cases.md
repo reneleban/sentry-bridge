@@ -15,7 +15,7 @@ For the full test suite, see `src/__tests__/`.
 **Test File:** `src/__tests__/wizard-pairing.test.ts`
 **Level:** Integration (HTTP route)
 **Module:** Obico Agent + Wizard API
-**Requirement:** SRS-008 (Obico pairing flow)
+**Requirement:** [REQ-0008](../requirements/05_anforderungen/REQ-0008-obico-pairing.md) (Obico pairing flow)
 
 ### Preconditions
 
@@ -44,7 +44,7 @@ Pass
 **Test File:** `src/__tests__/wizard-pairing.test.ts`
 **Level:** Integration (HTTP route + fake timers)
 **Module:** Obico Agent + Wizard API
-**Requirement:** SRS-008
+**Requirement:** [REQ-0008](../requirements/05_anforderungen/REQ-0008-obico-pairing.md)
 
 ### Preconditions
 
@@ -72,7 +72,7 @@ Pass
 **Test File:** `src/__tests__/circuit-breaker.test.ts`
 **Level:** Unit
 **Module:** Circuit Breaker (`src/lib/circuit-breaker.ts`)
-**Requirement:** SRS-013 (circuit breaker threshold)
+**Requirement:** [REQ-0013](../requirements/05_anforderungen/REQ-0013-circuit-breaker.md) (circuit breaker threshold)
 
 ### Preconditions
 
@@ -105,7 +105,7 @@ Pass
 **Test File:** `src/__tests__/circuit-breaker.test.ts`
 **Level:** Unit
 **Module:** Circuit Breaker
-**Requirement:** SRS-013
+**Requirement:** [REQ-0013](../requirements/05_anforderungen/REQ-0013-circuit-breaker.md)
 
 ### Preconditions
 
@@ -134,7 +134,7 @@ Pass
 **Test File:** `src/__tests__/bridge-reload.test.ts`
 **Level:** Integration
 **Module:** Bridge Orchestrator + Config Module
-**Requirement:** SRS-001 (config reload without container restart)
+**Requirement:** [REQ-0001](../requirements/05_anforderungen/REQ-0001-config-file.md) (config reload without container restart)
 
 ### Preconditions
 
@@ -164,7 +164,7 @@ Pass
 **Test File:** `src/__tests__/obico-agent.test.ts`
 **Level:** Unit
 **Module:** Obico Agent
-**Requirement:** SRS-017 (print command dispatch), SRS-004 (ref-matched ACK)
+**Requirement:** [REQ-0017](../requirements/05_anforderungen/REQ-0017-obico-print-start.md) (print command dispatch), [REQ-0004](../requirements/05_anforderungen/REQ-0004-print-control-relay.md) (ref-matched ACK)
 
 ### Preconditions
 
@@ -195,7 +195,7 @@ Pass
 **Test File:** `src/__tests__/obico-agent.test.ts`
 **Level:** Unit
 **Module:** Obico Agent
-**Requirement:** SRS-018 (SSRF mitigation)
+**Requirement:** [REQ-0018](../requirements/05_anforderungen/REQ-0018-download-origin-validation.md) (SSRF mitigation)
 
 ### Preconditions
 
@@ -224,7 +224,7 @@ Pass
 **Test File:** `src/__tests__/obico-agent.test.ts`
 **Level:** Unit
 **Module:** Obico Agent
-**Requirement:** SRS-007 (automatic reconnect within 60 s)
+**Requirement:** [REQ-0007](../requirements/05_anforderungen/REQ-0007-obico-websocket.md) (automatic reconnect within 60 s)
 
 ### Preconditions
 
@@ -256,7 +256,7 @@ Pass
 **Test File:** `src/__tests__/prusalink.test.ts`
 **Level:** Unit
 **Module:** PrusaLink Client
-**Requirement:** SRS-003 (job status polling)
+**Requirement:** [REQ-0003](../requirements/05_anforderungen/REQ-0003-prusalink-polling.md) (job status polling)
 
 ### Preconditions
 
@@ -283,7 +283,7 @@ Pass
 **Test File:** `src/__tests__/files-routes.test.ts`
 **Level:** Integration (HTTP route)
 **Module:** Files API + PrusaLink Client
-**Requirement:** SRS-016 (file upload up to 200 MB without OOM)
+**Requirement:** [REQ-0016](../requirements/05_anforderungen/REQ-0016-octoprint-file-endpoints.md) (file upload up to 200 MB without OOM)
 
 ### Preconditions
 

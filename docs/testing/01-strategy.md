@@ -145,8 +145,8 @@ This policy was applied throughout v1.0 and v1.1.0 development and is documented
 
 ## 7. Known Gaps
 
-| Gap                                  | Rationale                                                                     |
-| ------------------------------------ | ----------------------------------------------------------------------------- |
-| React frontend component tests       | Mantine v9 + Vite setup deferred; E2E tooling (Playwright) not yet configured |
-| Performance tests (frame throughput) | LAN-only deployment; load testing not a priority for v1.x                     |
-| Security penetration testing         | Acknowledged in NFR-S01; manual review performed for SSRF/EoP mitigations     |
+| Gap                                  | Rationale                                                                                                                                      |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| React frontend component tests       | Mantine v9 + Vite setup deferred; E2E tooling (Playwright) not yet configured                                                                  |
+| Performance tests (frame throughput) | LAN-only deployment; load testing not a priority for v1.x                                                                                      |
+| Security penetration testing         | Acknowledged in [REQ-0030](../requirements/05_anforderungen/REQ-0030-lan-only-deployment.md); manual review performed for SSRF/EoP mitigations |

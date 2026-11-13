@@ -19,7 +19,7 @@ SentryBridge has a web UI with printer control and config writes, but no authent
 ## Considered Options
 
 1. **A — Proxy the whole bridge UI through the tunnel.** Serve `/`, assets and all of `/api/*`.
-2. **B — `/api/*` tunnel plus a LAN link page.** Proxy `/api/*` (narrowed to an allow-list, see below) with `GET`, `POST`, `DELETE` (NFR-S03); answer `GET /` with a small static page that says the UI is LAN-only and links to the bridge URL.
+2. **B — `/api/*` tunnel plus a LAN link page.** Proxy `/api/*` (narrowed to an allow-list, see below) with `GET`, `POST`, `DELETE` ([REQ-0032](../../requirements/05_anforderungen/REQ-0032-http-tunnel-path-restriction.md)); answer `GET /` with a small static page that says the UI is LAN-only and links to the bridge URL.
 3. **C — Document the button as unsupported.** No `/` handling.
 
 ## Decision Outcome
@@ -38,7 +38,7 @@ Within `/api/*`, the tunnel proxies only an explicit allow-list, not the whole p
   - The OctoPrint button shows where the UI is instead of an error.
   - Smaller attack surface than before: the tunnel serves one read-only endpoint from an allow-list plus a static page; config, setup, wizard, reconnect, control and file-mutating endpoints are LAN-only.
   - Tunnel replies use the official BSON format, so the allowed endpoints work against a real Obico server.
-  - A new endpoint is reachable through the tunnel only after it is added to the allow-list in `src/obico/tunnel.ts` and NFR-S03.
+  - A new endpoint is reachable through the tunnel only after it is added to the allow-list in `src/obico/tunnel.ts` and [REQ-0032](../../requirements/05_anforderungen/REQ-0032-http-tunnel-path-restriction.md).
 - **Negative:**
   - The bridge UI is not usable remotely through Obico; users need the LAN, a VPN or their own authenticated reverse proxy.
   - Adds the `bson` dependency (Apache-2.0).
