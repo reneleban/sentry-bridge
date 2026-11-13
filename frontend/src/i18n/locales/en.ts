@@ -148,6 +148,9 @@ export default {
       rtsp_url: "RTSP URL",
       frame_interval: "Frame Interval (s)",
       obico_url: "Obico Server URL",
+      download_allowed_hosts: "Allowed download hosts",
+      download_allowed_hosts_hint:
+        "Extra hostnames Obico may send print files from, one per line or comma-separated. The Obico server itself is always allowed; Obico Cloud users must add their file storage host here.",
       bridge_url: "Bridge URL (empty = auto-detect)",
       save: "Save",
       saving: "Saving…",

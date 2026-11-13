@@ -8,7 +8,11 @@ export function secretHint(secret: string): string {
 
 export type PublicConfig = Omit<Config, "prusalink" | "obico"> & {
   prusalink: { url: string; username: string; passwordHint: string };
-  obico: { serverUrl: string; apiKeyHint: string };
+  obico: {
+    serverUrl: string;
+    apiKeyHint: string;
+    downloadAllowedHosts?: string[];
+  };
 };
 
 /** The config as the API may return it: secrets replaced by hints. */

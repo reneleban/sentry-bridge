@@ -88,10 +88,11 @@ SentryBridge uses HTTP Digest Authentication for all PrusaLink requests — your
 
 #### `obico`
 
-| Field       | Type   | Description                                                                                                                                                             |
-| ----------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `serverUrl` | string | Your Obico server URL. Use `https://app.obico.io` for the Obico cloud, or your self-hosted instance URL. No trailing slash.                                             |
-| `apiKey`    | string | Pairing token assigned by Obico during the Setup Wizard pairing step. This field is empty until the wizard completes step 3. Do not set this manually — use the wizard. |
+| Field                  | Type     | Description                                                                                                                                                                                                                                                                                                                                               |
+| ---------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `serverUrl`            | string   | Your Obico server URL. Use `https://app.obico.io` for the Obico cloud, or your self-hosted instance URL. No trailing slash.                                                                                                                                                                                                                               |
+| `apiKey`               | string   | Pairing token assigned by Obico during the Setup Wizard pairing step. This field is empty until the wizard completes step 3. Do not set this manually — use the wizard.                                                                                                                                                                                   |
+| `downloadAllowedHosts` | string[] | Optional. Extra hostnames (exact match, case-insensitive) that print files sent from Obico may be downloaded from. Downloads from the `serverUrl` origin are always allowed; any other host is rejected, including redirect targets. Obico Cloud users must add the host their files are served from. Editable in the dashboard settings. Default: empty. |
 
 #### `polling`
 

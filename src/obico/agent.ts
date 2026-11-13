@@ -287,6 +287,46 @@ export function createObicoAgent(
     }
   }
 
+  // #140 SSRF mitigation: only the Obico server origin or an explicitly
+  // allowed host may be fetched; redirects are re-checked hop by hop.
+  const MAX_DOWNLOAD_REDIRECTS = 5;
+
+  function assertDownloadAllowed(url: URL): void {
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      throw new PassthruError(
+        `download url not allowed (protocol): ${url.protocol}`
+      );
+    }
+    const allowedHosts = (config.downloadAllowedHosts ?? []).map((h) =>
+      h.trim().toLowerCase()
+    );
+    if (
+      url.origin === new URL(config.serverUrl).origin ||
+      allowedHosts.includes(url.hostname.toLowerCase())
+    ) {
+      return;
+    }
+    throw new PassthruError(`download url not allowed (host): ${url.hostname}`);
+  }
+
+  async function fetchAllowedDownload(url: string): Promise<Response> {
+    let current = new URL(url);
+    for (let hop = 0; hop <= MAX_DOWNLOAD_REDIRECTS; hop++) {
+      assertDownloadAllowed(current);
+      const res = await http.fetch(current.toString(), {
+        method: "GET",
+        redirect: "manual",
+      });
+      const location =
+        res.status >= 300 && res.status < 400
+          ? res.headers.get("location")
+          : null;
+      if (!location) return res;
+      current = new URL(location, current);
+    }
+    throw new PassthruError("download failed: too many redirects");
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async function handleDownloadAndPrint(passthru: any): Promise<void> {
     const ref = passthru.ref;
@@ -298,14 +338,6 @@ export function createObicoAgent(
       if (!safe_filename || typeof safe_filename !== "string")
         throw new Error("missing safe_filename");
 
-      // SSRF-Mitigation: only http/https allowed (commands come from authenticated WebSocket)
-      const parsed = new URL(url);
-      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-        throw new Error(
-          `unsafe download url (disallowed protocol): ${parsed.protocol}`
-        );
-      }
-
       // Path-Traversal-Mitigation: basename
       const cleanName = pathBasename(safe_filename);
       if (!cleanName || cleanName === "." || cleanName === "..") {
@@ -313,7 +345,7 @@ export function createObicoAgent(
       }
 
       // Download into memory buffer and upload directly (no temp file needed)
-      const res = await http.fetch(url, { method: "GET" });
+      const res = await fetchAllowedDownload(url);
       if (!res.ok) throw new Error(`download failed: ${res.status}`);
       const buf = Buffer.from(await res.arrayBuffer());
       await dispatcher.uploadFile(cleanName, buf);

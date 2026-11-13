@@ -2665,3 +2665,137 @@ describe("WebSocket reconnect after obico_ws breaker opens", () => {
     }
   });
 });
+
+// ──────────────────────────────────────────────────────────────────────────────
+// #140: download origin allowlist (SSRF)
+// ──────────────────────────────────────────────────────────────────────────────
+
+describe("file_downloader.download origin allowlist (#140)", () => {
+  let wss: WebSocketServer;
+  let port: number;
+
+  beforeEach((done) => {
+    wss = new WebSocketServer({ port: 0 });
+    wss.on("listening", () => {
+      port = boundPort(wss);
+      done();
+    });
+    jest.clearAllMocks();
+  });
+
+  afterEach((done) => {
+    wss.close(done);
+  });
+
+  const okBody = {
+    ok: true,
+    status: 200,
+    headers: { get: () => null },
+    arrayBuffer: () => Promise.resolve(Buffer.from("gcode").buffer),
+  } as unknown as Response;
+
+  function redirectTo(location: string): Response {
+    return {
+      ok: false,
+      status: 302,
+      headers: {
+        get: (h: string) => (h.toLowerCase() === "location" ? location : null),
+      },
+      arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+    } as unknown as Response;
+  }
+
+  function download(
+    url: string,
+    downloadAllowedHosts?: string[]
+  ): Promise<{ ret?: unknown; error?: string }> {
+    const agent = createObicoAgent(
+      {
+        serverUrl: `http://localhost:${port}`,
+        apiKey: "key",
+        downloadAllowedHosts,
+      },
+      mockHttp,
+      mockDispatcher,
+      undefined,
+      createFileSizeCache({ pauseMs: 0 })
+    );
+    return new Promise((resolve) => {
+      wss.on("connection", (ws) => {
+        ws.on("message", (data) => {
+          const msg = JSON.parse(data.toString());
+          if (msg.passthru?.ref === "DL") {
+            agent.disconnect();
+            resolve(msg.passthru);
+          }
+        });
+        ws.send(
+          JSON.stringify({
+            passthru: {
+              target: "file_downloader",
+              func: "download",
+              ref: "DL",
+              args: [{ url, safe_filename: "a.gcode", id: 1 }],
+            },
+          })
+        );
+      });
+      agent.connect();
+    });
+  }
+
+  it("rejects a URL on a host other than the Obico server without fetching", async () => {
+    const reply = await download("http://169.254.169.254/latest/meta-data");
+    expect(reply.error).toMatch(/not allowed/);
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockDispatcher.uploadFile).not.toHaveBeenCalled();
+  });
+
+  it("rejects the server host on a different port", async () => {
+    const reply = await download(`http://localhost:${port + 1}/f.gcode`);
+    expect(reply.error).toMatch(/not allowed/);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("accepts a host from downloadAllowedHosts, case-insensitively", async () => {
+    mockFetch.mockResolvedValue(okBody);
+    const reply = await download("https://Files.Example.COM/a.gcode", [
+      "files.example.com",
+    ]);
+    expect(reply.error).toBeUndefined();
+    expect(mockDispatcher.uploadFile).toHaveBeenCalledWith(
+      "a.gcode",
+      expect.any(Buffer)
+    );
+  });
+
+  it("does not follow a redirect to a disallowed host", async () => {
+    mockFetch.mockResolvedValueOnce(redirectTo("http://192.168.1.1/admin"));
+    const reply = await download(`http://localhost:${port}/a.gcode`);
+    expect(reply.error).toMatch(/not allowed/);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][1]).toMatchObject({ redirect: "manual" });
+    expect(mockDispatcher.uploadFile).not.toHaveBeenCalled();
+  });
+
+  it("follows a redirect to an allowed host", async () => {
+    mockFetch
+      .mockResolvedValueOnce(redirectTo("https://files.example.com/a.gcode"))
+      .mockResolvedValueOnce(okBody);
+    const reply = await download(`http://localhost:${port}/a.gcode`, [
+      "files.example.com",
+    ]);
+    expect(reply.error).toBeUndefined();
+    expect(mockFetch.mock.calls[1][0]).toBe(
+      "https://files.example.com/a.gcode"
+    );
+    expect(mockDispatcher.uploadFile).toHaveBeenCalled();
+  });
+
+  it("gives up after too many redirects", async () => {
+    mockFetch.mockResolvedValue(redirectTo(`http://localhost:${port}/loop`));
+    const reply = await download(`http://localhost:${port}/a.gcode`);
+    expect(reply.error).toMatch(/redirect/);
+    expect(mockDispatcher.uploadFile).not.toHaveBeenCalled();
+  });
+});

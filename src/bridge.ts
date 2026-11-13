@@ -152,7 +152,9 @@ export function diffConfig(prev: Config, next: Config) {
       prev.prusalink.password !== next.prusalink.password,
     obico:
       prev.obico.serverUrl !== next.obico.serverUrl ||
-      prev.obico.apiKey !== next.obico.apiKey,
+      prev.obico.apiKey !== next.obico.apiKey ||
+      (prev.obico.downloadAllowedHosts ?? []).join(",") !==
+        (next.obico.downloadAllowedHosts ?? []).join(","),
     camera:
       prev.camera.rtspUrl !== next.camera.rtspUrl ||
       prev.camera.frameIntervalSeconds !== next.camera.frameIntervalSeconds,
@@ -243,6 +245,7 @@ async function applyConfigChange(newConfig: Config): Promise<void> {
       {
         serverUrl: validated.obico.serverUrl,
         apiKey: validated.obico.apiKey,
+        downloadAllowedHosts: validated.obico.downloadAllowedHosts,
         bridgeUrl: getBridgeUrl(validated, currentPort),
         streamUrl: `${getBridgeUrl(validated, currentPort)}/stream`,
         localPort: currentPort,
@@ -318,6 +321,7 @@ export async function reconnectComponent(
       {
         serverUrl: currentConfig.obico.serverUrl,
         apiKey: currentConfig.obico.apiKey,
+        downloadAllowedHosts: currentConfig.obico.downloadAllowedHosts,
         bridgeUrl: getBridgeUrl(currentConfig, currentPort),
         streamUrl: `${getBridgeUrl(currentConfig, currentPort)}/stream`,
         localPort: currentPort,
@@ -343,6 +347,7 @@ export async function reconnectComponent(
       {
         serverUrl: currentConfig.obico.serverUrl,
         apiKey: currentConfig.obico.apiKey,
+        downloadAllowedHosts: currentConfig.obico.downloadAllowedHosts,
         bridgeUrl: getBridgeUrl(currentConfig, currentPort),
         streamUrl: `${getBridgeUrl(currentConfig, currentPort)}/stream`,
         localPort: currentPort,
@@ -501,6 +506,7 @@ export async function startBridge(port = 3000): Promise<void> {
     {
       serverUrl: config.obico.serverUrl,
       apiKey: config.obico.apiKey,
+      downloadAllowedHosts: config.obico.downloadAllowedHosts,
       bridgeUrl,
       streamUrl: `${bridgeUrl}/stream`,
       localPort: port,

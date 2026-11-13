@@ -6,6 +6,7 @@ import {
   Group,
   NumberInput,
   Stack,
+  Textarea,
   TextInput,
   Title,
   Alert,
@@ -23,6 +24,7 @@ interface ConfigForm {
   rtspUrl: string;
   frameInterval: number;
   obicoServerUrl: string;
+  downloadAllowedHosts: string;
   bridgeUrl: string;
 }
 
@@ -40,6 +42,7 @@ export function ConfigCard() {
     rtspUrl: "",
     frameInterval: 10,
     obicoServerUrl: "",
+    downloadAllowedHosts: "",
     bridgeUrl: "",
   });
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
@@ -59,6 +62,9 @@ export function ConfigCard() {
           rtspUrl: cfg.camera?.rtspUrl ?? "",
           frameInterval: cfg.camera?.frameIntervalSeconds ?? 10,
           obicoServerUrl: cfg.obico?.serverUrl ?? "",
+          downloadAllowedHosts: (cfg.obico?.downloadAllowedHosts ?? []).join(
+            "\n"
+          ),
           bridgeUrl: cfg.bridgeUrl ?? "",
         });
       })
@@ -89,7 +95,14 @@ export function ConfigCard() {
           },
           // Empty key keeps the stored one; the backend refuses this if the
           // server URL changed (that needs re-pairing in the wizard).
-          obico: { serverUrl: form.obicoServerUrl, apiKey: "" },
+          obico: {
+            serverUrl: form.obicoServerUrl,
+            apiKey: "",
+            // One host per line or comma-separated (#140).
+            downloadAllowedHosts: form.downloadAllowedHosts
+              .split(/[\s,]+/)
+              .filter(Boolean),
+          },
           polling: { statusIntervalMs: 5000 },
           bridgeUrl: form.bridgeUrl || undefined,
         }),
@@ -162,6 +175,17 @@ export function ConfigCard() {
             value={form.obicoServerUrl}
             onChange={(e) => patch("obicoServerUrl", e.currentTarget.value)}
             placeholder="http://192.168.1.x:3334"
+          />
+          <Textarea
+            label={t("dashboard.config.download_allowed_hosts")}
+            description={t("dashboard.config.download_allowed_hosts_hint")}
+            value={form.downloadAllowedHosts}
+            onChange={(e) =>
+              patch("downloadAllowedHosts", e.currentTarget.value)
+            }
+            placeholder="files.example.com"
+            autosize
+            minRows={2}
           />
           <TextInput
             label={t("dashboard.config.bridge_url")}

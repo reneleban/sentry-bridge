@@ -154,6 +154,40 @@ describe("POST /api/setup/save", () => {
     expect(readStored().obico.apiKey).toBe(API_KEY);
   });
 
+  it("saves obico.downloadAllowedHosts trimmed and lower-cased (#140)", async () => {
+    const res = await request(app)
+      .post("/api/setup/save")
+      .send({
+        ...body,
+        obico: {
+          serverUrl: "http://obico",
+          apiKey: "",
+          downloadAllowedHosts: [" Files.Example.com ", ""],
+        },
+      });
+    expect(res.status).toBe(200);
+    expect(readStored().obico.downloadAllowedHosts).toEqual([
+      "files.example.com",
+    ]);
+    const cfg = await request(app).get("/api/config");
+    expect(cfg.body.obico.downloadAllowedHosts).toEqual(["files.example.com"]);
+  });
+
+  it("saves a config without downloadAllowedHosts unchanged (#140)", async () => {
+    await request(app).post("/api/setup/save").send(body);
+    expect(readStored().obico.downloadAllowedHosts).toBeUndefined();
+  });
+
+  it("rejects downloadAllowedHosts that is not a list of strings (#140)", async () => {
+    const res = await request(app)
+      .post("/api/setup/save")
+      .send({
+        ...body,
+        obico: { ...body.obico, downloadAllowedHosts: "files.example.com" },
+      });
+    expect(res.status).toBe(400);
+  });
+
   it("replaces secrets when the fields are filled", async () => {
     const res = await request(app)
       .post("/api/setup/save")

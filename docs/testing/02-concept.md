@@ -48,7 +48,7 @@ Each test file is co-located with the module in `src/__tests__/` and follows the
 - Pairing flow: `waitForPairing()` polls `/api/v1/octo/verify/` with correct `?code=` query parameter.
 - Passthru dispatch: `pause`, `resume`, `cancel` are forwarded to the `PrusaLinkCommandDispatcher`.
 - Print commands: `start_printer_local_print` resolves file name and calls `startPrint()`.
-- `file_downloader.download`: SSRF scheme check is tested (non-`http`/`https` URL → rejected); an origin check is not implemented (#140).
+- `file_downloader.download`: SSRF checks are tested: non-`http`/`https` scheme, host outside the Obico server origin and `obico.downloadAllowedHosts`, and redirects to disallowed hosts are rejected without a request (#140).
 - ACK: ref-matched response is sent after successful dispatch.
 - Reconnect: exponential backoff is tested via fake timers (`jest.useFakeTimers`).
 
