@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The WebRTC stream passes the camera's H.264 video through instead of re-encoding it, cutting the container's CPU use from about 32 % to 11 % of one core and its memory from about 250 MB to 145 MB on a Core One. Janus now sends new viewers the latest keyframe right away, and the advertised H.264 level matches the camera (4.0). (#88)
+
 ### Security
 
 - Print file downloads requested by Obico are only fetched from the configured Obico server origin or from hosts listed in the new `obico.downloadAllowedHosts` setting (dashboard settings, one host per line). Redirects are re-checked against the same rule. **Obico Cloud users must add the host their print files are served from to this list**, otherwise printing from Obico fails with a "download url not allowed" error. (#140)

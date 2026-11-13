@@ -11,7 +11,8 @@ Obico requires a continuous camera stream for AI failure detection. The Prusa Co
 ## Decision Drivers
 
 - Source is RTSP H.264 — must decode to JPEG for Obico's HTTP upload endpoint.
-- ffmpeg is a proven, widely available tool for RTSP transcoding. It is available as an Alpine package.
+- ffmpeg is a proven, widely available tool for RTSP handling. It is available as an Alpine package.
+- The camera already sends WebRTC-compatible H.264 (Constrained Baseline, no B-frames), so the RTP output for Janus copies the stream instead of re-encoding it (#88). Janus buffers the latest keyframe (`videobufferkf`) so new viewers get a picture immediately.
 - Frame interval is configurable (default: 2 s = 0.5 fps for AI detection; Obico default is 10 s).
 - The camera stream is mandatory — the setup wizard blocks progression if the RTSP stream is unreachable.
 

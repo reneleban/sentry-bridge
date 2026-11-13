@@ -48,7 +48,7 @@ Prusa printers with the Buddy3D camera board expose the camera over RTSP at `rts
 
 Starting from firmware released in April 2026, Prusa printers default to WebRTC as the camera protocol for their own app (Prusa Connect). WebRTC is a browser-to-server protocol — it is designed for Prusa's own cloud infrastructure, not for local consumers like SentryBridge.
 
-**The reason SentryBridge uses RTSP:** ffmpeg, the industry-standard video tool included in the SentryBridge image, speaks RTSP natively. It captures the stream, extracts JPEG frames for Obico's AI detection, and re-encodes it for the WebRTC stream that the Obico control panel displays. This pipeline is straightforward and does not depend on Prusa's cloud.
+**The reason SentryBridge uses RTSP:** ffmpeg, the industry-standard video tool included in the SentryBridge image, speaks RTSP natively. It captures the stream, extracts JPEG frames for Obico's AI detection, and passes the H.264 video through unchanged to the WebRTC stream that the Obico control panel displays. This pipeline is straightforward and does not depend on Prusa's cloud.
 
 When you switch the camera protocol to RTSP in PrusaLink settings (`Settings → Network → Camera`), you are not disabling anything — you are making the stream available on the standard local endpoint that SentryBridge (and tools like ffmpeg, VLC, and Home Assistant) use. Prusa Connect continues to work regardless of this setting.
 
