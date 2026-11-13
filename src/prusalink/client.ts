@@ -296,7 +296,11 @@ export function createPrusaLinkClient(
       return body.size ?? 0;
     },
 
-    async uploadFile(filename: string, data: Buffer): Promise<void> {
+    async uploadFile(
+      filename: string,
+      data: Buffer,
+      opts: { overwrite?: boolean } = {}
+    ): Promise<void> {
       const res = await request(
         "PUT",
         `/api/v1/files/usb/${encodeURIComponent(filename)}`,
@@ -306,6 +310,8 @@ export function createPrusaLinkClient(
             headers: {
               "Content-Type": "application/octet-stream",
               "Content-Length": String(data.byteLength),
+              // Without it PrusaLink answers 409 for an existing file (#145).
+              ...(opts.overwrite ? { Overwrite: "?1" } : {}),
             },
           },
           timeoutMs: uploadTimeoutMs,

@@ -93,7 +93,11 @@ export interface PrusaLinkCommandDispatcher {
   resume(): Promise<void>;
   cancel(): Promise<void>;
   startPrint(filename: string): Promise<void>;
-  uploadFile(filename: string, data: Buffer): Promise<void>;
+  uploadFile(
+    filename: string,
+    data: Buffer,
+    opts?: { overwrite?: boolean }
+  ): Promise<void>;
   listFiles(): Promise<FileEntry[]>;
   getFileSize(filename: string): Promise<number>;
 }
@@ -139,7 +143,14 @@ export function buildStatusMessage(
   // FINISHING is dead with current Buddy firmware (reported as PRINTING); kept for safety.
   const isFinishing = status.state === "FINISHING";
   const isError = status.state === "ERROR";
-  const isReady = status.state === "IDLE" || status.state === "READY";
+  // Obico shows a printer as active while operational && !ready, so every
+  // state after a print (FINISHED waits for the panel acknowledgement) must be
+  // ready (#144).
+  const isReady =
+    status.state === "IDLE" ||
+    status.state === "READY" ||
+    status.state === "FINISHED" ||
+    status.state === "STOPPED";
 
   const webcamEntry = streamUrl
     ? {
@@ -184,7 +195,7 @@ export function buildStatusMessage(
           cancelling: false,
           pausing: false,
           resuming: false,
-          finishing: isFinishing || status.state === "FINISHED",
+          finishing: isFinishing,
           closedOrError: isError,
           error: isError,
           ready: isReady,
