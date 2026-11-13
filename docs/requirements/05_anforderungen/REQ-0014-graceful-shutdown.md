@@ -21,6 +21,8 @@ Not documented.
 
 - `docker stop` completes within 10 s.
 - No orphaned ffmpeg processes remain after shutdown.
+- A hard exit timer ends the process after 8 s if the orderly shutdown hangs (`src/bridge.ts`).
+- ffmpeg children that ignore SIGTERM are killed with SIGKILL after 5 s (`src/lib/terminate.ts`).
 
 ## Related ADRs
 

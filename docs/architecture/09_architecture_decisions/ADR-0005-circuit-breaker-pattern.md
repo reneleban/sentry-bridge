@@ -25,7 +25,7 @@ SentryBridge depends on three external components that can be temporarily unavai
 
 Chosen: **Option 1 — Circuit Breaker pattern**, implemented in `src/lib/circuit-breaker.ts`, registered per component in `CircuitBreakerRegistry` (`src/lib/health.ts`).
 
-All three components (keys: `"prusalink"`, `"obico_ws"`, `"camera"`) have dedicated circuit breakers. Frame uploads to Obico (`POST /api/v1/octo/pic/`) have a fourth breaker, `"obico_frames"` (`src/obico/agent.ts`), so a failing upload endpoint neither hammers Obico nor trips the WebSocket breaker; when it opens, the `obico_frames` health component becomes DEGRADED, not DOWN. The Retry pattern (`src/lib/retry.ts`) is used in addition for transient errors within the CLOSED state.
+All three components (keys: `"prusalink"`, `"obico_ws"`, `"camera"`) have dedicated circuit breakers. Frame uploads to Obico (`POST /api/v1/octo/pic/`) have a fourth breaker, `"obico_frames"` (`src/obico/agent.ts`), so a failing upload endpoint neither hammers Obico nor trips the WebSocket breaker; when it opens, the `obico_frames` health component becomes DEGRADED, not DOWN. The Retry pattern (`src/lib/retry.ts`) is used in addition for transient errors within the CLOSED state. Backoff is deterministic (`min(base * 2^attempt, max)`, without jitter): with one container per printer there is no thundering herd to spread out, and predictable delays keep logs readable (#126).
 
 Default parameters: threshold=5 failures (`CIRCUIT_BREAKER_THRESHOLD`), reset timeout=60 s (`CIRCUIT_BREAKER_RESET_TIMEOUT_MS`, default `60000`), read in `src/lib/env-config.ts`.
 
