@@ -6,6 +6,8 @@ scripts/poc/node_modules/
 .env
 !.env.example
 /config/config.json
+/config/print-state.json*
+/config/file-sizes.json*
 !/config/config.example.json
 *.log
 reports/
