@@ -1,6 +1,6 @@
 # Chapter 6: Runtime View
 
-This chapter documents six key runtime scenarios that illustrate how SentryBridge behaves during operation. Each scenario is shown as a Mermaid sequence diagram.
+This chapter documents nine key runtime scenarios that illustrate how SentryBridge behaves during operation. Each scenario is shown as a Mermaid sequence diagram.
 
 ---
 
@@ -17,34 +17,37 @@ sequenceDiagram
     UI->>Bridge: POST /api/wizard/verify-pairing {setup, obicoServerUrl, code}
     Bridge->>Obico: POST /api/v1/octo/verify/?code=<code>
     Obico-->>Bridge: 200 { printer: { auth_token, id, name } }
-    Bridge->>Bridge: saveConfig() with auth_token as apiKey → emit configChanged
+    Bridge->>Bridge: saveConfig() with auth_token as apiKey → emit config-changed
     Bridge-->>UI: 200 { ok, serverUrl } (no apiKey)
     Bridge->>Obico: WebSocket connect wss://{server}/ws/dev/ (Authorization: bearer {auth_token})
     Obico-->>Bridge: WebSocket established
-    Bridge->>Obico: Send printer_info { type: "moonraker_obico", version: "2.1.0" }
+    Bridge->>Obico: PATCH /api/v1/octo/printer/ { agent_name: "moonraker_obico", agent_version: "2.1.0" }
 ```
 
 ---
 
 ## Scenario 2: Frame Loop
 
-After pairing, SentryBridge continuously captures camera frames and forwards them to Obico for AI failure detection.
+After pairing, SentryBridge continuously captures camera frames and forwards them to Obico for AI failure detection. One persistent ffmpeg process decodes the RTSP stream; the bridge uploads at most one frame per `frameIntervalSeconds` and skips frames while an upload is still running. Uploads go through their own circuit breaker (`obico_frames`); when it opens, the `obico_frames` health component becomes DEGRADED and the WebSocket is not affected.
 
 ```mermaid
 sequenceDiagram
     participant Printer as Buddy3D Camera (RTSP)
-    participant ffmpeg as ffmpeg process
-    participant Bridge as SentryBridge (Camera Module)
+    participant ffmpeg as ffmpeg process (persistent)
+    participant Camera as Camera Module
+    participant Bridge as Bridge (frame forwarding)
     participant Obico as Obico Server
 
-    loop Every frameIntervalSeconds (default: 2s)
-        Bridge->>ffmpeg: spawn: ffmpeg -rtsp_transport tcp -i rtsp://[ip]/live -vframes 1 -f image2pipe
-        ffmpeg->>Printer: RTSP connect + request frame
-        Printer-->>ffmpeg: RTSP stream (H.264)
-        ffmpeg-->>Bridge: JPEG frame (stdout pipe)
-        Bridge->>Bridge: encode frame as base64
-        Bridge->>Obico: POST /api/v1/octo/pic/ (multipart: img=<base64>, is_primary_cam=true)
-        Obico-->>Bridge: 200 OK
+    Camera->>ffmpeg: spawn once: ffmpeg -rtsp_transport tcp -i rtsp://[ip]/live -vf fps=5 -f image2pipe -vcodec mjpeg pipe:1
+    ffmpeg->>Printer: RTSP connect
+    loop Continuous stream
+        Printer-->>ffmpeg: H.264 stream
+        ffmpeg-->>Camera: JPEG frames (stdout pipe, 5 fps)
+        Camera->>Bridge: onFrame(frame)
+        opt frameIntervalSeconds elapsed and no upload running
+            Bridge->>Obico: POST /api/v1/octo/pic/ (multipart: pic=pic.jpg) via obico_frames breaker
+            Obico-->>Bridge: 200 OK
+        end
     end
 ```
 
@@ -72,7 +75,6 @@ sequenceDiagram
             Obico-->>Bridge: WebSocket established
             Bridge->>Health: setComponentState("obico_ws", HEALTHY)
             Bridge->>CB: recordSuccess()
-            Bridge->>Obico: Send printer_info (re-pairing check)
         else Connection fails
             Obico--xBridge: Connection refused / timeout
             Bridge->>CB: recordFailure()
@@ -127,7 +129,7 @@ sequenceDiagram
     UI->>API: POST /api/setup/save { prusalink, camera, obico, ... }
     API->>Config: saveConfig(newConfig)
     Config->>Config: write /config/config.json
-    Config->>Bridge: emit("configChanged")
+    Config->>Bridge: emit("config-changed")
     Bridge->>Bridge: stopBridge() — close WS, kill ffmpeg, clear poll interval
     Bridge->>Config: loadConfig()
     Bridge->>Bridge: startBridge() — init PrusaLink client, Camera, Obico Agent
@@ -175,4 +177,89 @@ sequenceDiagram
         PrusaLink--xCB: timeout
         CB->>CB: circuit OPEN again (60s reset restarts)
     end
+```
+
+---
+
+## Scenario 7: Boot Checks
+
+At bridge start (and on `POST /api/boot-checks`) the boot checks run in the background; the bridge never waits for them (ADR-0016).
+
+```mermaid
+sequenceDiagram
+    participant Bridge as Bridge Orchestrator
+    participant Boot as Boot Service
+    participant PrusaLink as PrusaLink HTTP API
+    participant Camera as Camera Module
+    participant Obico as Obico Server
+    participant UI as Web UI (Browser)
+
+    Bridge->>Boot: runAndStoreBootChecks(config) (not awaited)
+    Boot->>PrusaLink: testConnection() → reachable, credentials
+    alt Camera running
+        Boot->>Camera: latestFrame(maxAge)
+    else No camera running
+        Boot->>Camera: testStream() (RTSP probe)
+    end
+    opt Camera check failed
+        Boot->>Boot: wait 15 s, retry camera check once
+    end
+    Boot->>Obico: GET {serverUrl} (any HTTP response = reachable)
+    Boot->>Boot: store report (results with i18n hint keys)
+    UI->>Boot: GET /api/boot-checks
+    Boot-->>UI: { checkedAt, results }
+```
+
+---
+
+## Scenario 8: Obico Tunnel Request
+
+Obico's "OctoPrint" button and file dialog reach the bridge through `http.tunnelv2` (ADR-0010).
+
+```mermaid
+sequenceDiagram
+    participant Obico as Obico Server
+    participant Agent as Obico Agent
+    participant Tunnel as tunnel.ts
+    participant API as Express API (127.0.0.1)
+
+    Obico->>Agent: WebSocket binary frame (BSON) http.tunnelv2 { ref, method, path, headers }
+    Agent->>Tunnel: handleTunnelRequest()
+    alt GET /
+        Tunnel-->>Agent: 200 static LAN-only page
+    else GET /api/files (allow-listed)
+        Tunnel->>API: GET /api/files (Host, Origin, Sec-Fetch-*, Accept-Encoding dropped)
+        API-->>Tunnel: OctoPrint-shaped file list
+    else other method or path
+        Tunnel-->>Agent: 405 / 403
+    end
+    Agent->>Obico: BSON frame { ref, response: { status, compressed, content, headers } } (zlib when body ≥ 1000 bytes)
+```
+
+---
+
+## Scenario 9: Print State Restore after Restart
+
+The start timestamp sent to Obico as `current_print_ts` identifies a print. It is persisted in `print-state.json` so a bridge restart during a print does not split the print in Obico (ADR-0015).
+
+```mermaid
+sequenceDiagram
+    participant Store as print-state.json
+    participant Agent as Obico Agent
+    participant PrusaLink as PrusaLink HTTP API
+    participant Obico as Obico Server
+
+    Agent->>Store: load() at agent creation
+    Store-->>Agent: { jobId, ts, ended? } or null
+    Agent->>PrusaLink: GET /api/v1/job
+    PrusaLink-->>Agent: { id, state }
+    alt stored jobId matches and not ended
+        Agent->>Agent: reuse stored ts
+    else new job PRINTING or PAUSED
+        Agent->>Agent: ts = now
+        Agent->>Store: save({ jobId, ts }) (write .tmp, rename)
+    else no running job
+        Agent->>Agent: no ts
+    end
+    Agent->>Obico: status { current_print_ts: ts }
 ```

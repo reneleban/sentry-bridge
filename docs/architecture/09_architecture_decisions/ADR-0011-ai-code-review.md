@@ -1,4 +1,4 @@
-# ADR-008: AI-Powered Code Review Tooling
+# ADR-0011: AI-Powered Code Review Tooling
 
 ## Status
 

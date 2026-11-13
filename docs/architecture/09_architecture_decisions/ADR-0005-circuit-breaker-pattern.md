@@ -25,9 +25,9 @@ SentryBridge depends on three external components that can be temporarily unavai
 
 Chosen: **Option 1 — Circuit Breaker pattern**, implemented in `src/lib/circuit-breaker.ts`, registered per component in `CircuitBreakerRegistry` (`src/lib/health.ts`).
 
-All three components (keys: `"prusalink"`, `"obico_ws"`, `"camera"`) have dedicated circuit breakers. The Retry pattern (`src/lib/retry.ts`) is used in addition for transient errors within the CLOSED state.
+All three components (keys: `"prusalink"`, `"obico_ws"`, `"camera"`) have dedicated circuit breakers. Frame uploads to Obico (`POST /api/v1/octo/pic/`) have a fourth breaker, `"obico_frames"` (`src/obico/agent.ts`), so a failing upload endpoint neither hammers Obico nor trips the WebSocket breaker; when it opens, the `obico_frames` health component becomes DEGRADED, not DOWN. The Retry pattern (`src/lib/retry.ts`) is used in addition for transient errors within the CLOSED state.
 
-Default parameters: threshold=5 failures, reset timeout=60 s (configurable via environment variables).
+Default parameters: threshold=5 failures (`CIRCUIT_BREAKER_THRESHOLD`), reset timeout=60 s (`CIRCUIT_BREAKER_RESET_TIMEOUT_MS`, default `60000`), read in `src/lib/env-config.ts`.
 
 When the `"camera"` breaker is OPEN and refuses an MJPEG spawn, the camera schedules its next attempt for the breaker's `timeUntilHalfOpenMs` plus a 1 s margin. It relies only on that public stat, not on the order of the breaker's internal timers; the margin also bounds the retry rate if the breaker still refuses.
 

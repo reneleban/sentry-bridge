@@ -32,4 +32,5 @@ Reasoning: simplest persistence model for a single-instance service. Human-reada
 
 - **Positive:** No external dependencies. Config is portable (copy the volume to migrate). Easy to inspect and edit manually.
 - **Negative:** No schema validation at the file level — malformed JSON causes startup failure. No config versioning or migration tooling in the current version.
-- **Hot-reload mechanism:** `configEmitter` (Node.js `EventEmitter`) in `src/config/config.ts` emits `"configChanged"` on `saveConfig()`. Bridge Orchestrator listens and triggers teardown + reinit.
+- **Amendment (2.x):** The volume also holds runtime state next to `config.json`: `print-state.json` and `file-sizes.json` (ADR-0015). `config.json` is set to mode `0600` by the container entrypoint (ADR-0012).
+- **Hot-reload mechanism:** `configEmitter` (Node.js `EventEmitter`) in `src/config/config.ts` emits `"config-changed"` on `saveConfig()`. Bridge Orchestrator listens and triggers teardown + reinit.
