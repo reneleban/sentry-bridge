@@ -2694,10 +2694,14 @@ describe("file_downloader.download origin allowlist (#140)", () => {
     arrayBuffer: () => Promise.resolve(Buffer.from("gcode").buffer),
   } as unknown as Response;
 
-  function redirectTo(location: string): Response {
+  function redirectTo(
+    location: string,
+    cancel: jest.Mock = jest.fn(() => Promise.resolve())
+  ): Response {
     return {
       ok: false,
       status: 302,
+      body: { cancel },
       headers: {
         get: (h: string) => (h.toLowerCase() === "location" ? location : null),
       },
@@ -2790,6 +2794,29 @@ describe("file_downloader.download origin allowlist (#140)", () => {
       "https://files.example.com/a.gcode"
     );
     expect(mockDispatcher.uploadFile).toHaveBeenCalled();
+  });
+
+  it("cancels the body of a redirect response it does not return", async () => {
+    const cancel = jest.fn(() => Promise.resolve());
+    mockFetch.mockResolvedValueOnce(
+      redirectTo("http://192.168.1.1/admin", cancel)
+    );
+    await download(`http://localhost:${port}/a.gcode`);
+    expect(cancel).toHaveBeenCalled();
+  });
+
+  it("still follows a redirect when cancelling its body fails", async () => {
+    const cancel = jest.fn(() => Promise.reject(new Error("boom")));
+    mockFetch
+      .mockResolvedValueOnce(
+        redirectTo("https://files.example.com/a.gcode", cancel)
+      )
+      .mockResolvedValueOnce(okBody);
+    const reply = await download(`http://localhost:${port}/a.gcode`, [
+      "files.example.com",
+    ]);
+    expect(reply.error).toBeUndefined();
+    expect(cancel).toHaveBeenCalled();
   });
 
   it("gives up after too many redirects", async () => {

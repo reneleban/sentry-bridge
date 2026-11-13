@@ -40,6 +40,29 @@ describe("POST /api/wizard/verify-pairing", () => {
     app.use("/api/wizard", wizardRouter);
   });
 
+  it("keeps the stored download allow-list when re-pairing", async () => {
+    fs.writeFileSync(
+      process.env.CONFIG_PATH!,
+      JSON.stringify({
+        prusalink: setup.prusalink,
+        camera: setup.camera,
+        obico: {
+          serverUrl: "http://obico.local",
+          apiKey: "old-key",
+          downloadAllowedHosts: ["files.example.com"],
+        },
+      })
+    );
+    waitForPairing.mockResolvedValue("token-new");
+    const res = await request(app)
+      .post("/api/wizard/verify-pairing")
+      .send(setup);
+    expect(res.status).toBe(200);
+    const saved = JSON.parse(fs.readFileSync(process.env.CONFIG_PATH!, "utf8"));
+    expect(saved.obico.apiKey).toBe("token-new");
+    expect(saved.obico.downloadAllowedHosts).toEqual(["files.example.com"]);
+  });
+
   it("returns 200 without the apiKey on successful pairing", async () => {
     waitForPairing.mockResolvedValue("token-abc-123");
     const res = await request(app)
