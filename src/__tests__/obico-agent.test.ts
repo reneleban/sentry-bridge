@@ -173,14 +173,23 @@ describe("buildStatusMessage()", () => {
     expect(msg.status.state.flags.printing).toBe(false);
   });
 
-  it("reflects FINISHED state — finishing flag true, current_print_ts=-1 (Print Done signal)", () => {
+  // Obico treats a printer as active while operational && !ready (#144).
+  it("reflects FINISHED as ready, not finishing, current_print_ts=-1 (Print Done signal)", () => {
     const msg = buildStatusMessage(
       { ...idleStatus, state: "FINISHED" },
       activeJob
     );
     expect(msg.status.state.text).toBe("Operational");
-    expect(msg.status.state.flags.finishing).toBe(true);
+    expect(msg.status.state.flags.ready).toBe(true);
+    expect(msg.status.state.flags.finishing).toBe(false);
     expect(msg.status.state.flags.printing).toBe(false);
+    expect(msg.current_print_ts).toBe(-1);
+  });
+
+  it("reflects STOPPED as ready, so Obico leaves the printing view (#144)", () => {
+    const msg = buildStatusMessage({ ...idleStatus, state: "STOPPED" }, null);
+    expect(msg.status.state.text).toBe("Operational");
+    expect(msg.status.state.flags.ready).toBe(true);
     expect(msg.current_print_ts).toBe(-1);
   });
 
@@ -1568,7 +1577,8 @@ describe("Print passthru commands", () => {
     setTimeout(() => {
       expect(mockDispatcher.uploadFile).toHaveBeenCalledWith(
         "benchy.gcode",
-        expect.any(Buffer)
+        expect.any(Buffer),
+        { overwrite: true }
       );
       expect(mockDispatcher.startPrint).toHaveBeenCalledWith("benchy.gcode");
       const ack = received.find((m) => m.includes('"ref":"R4"'));
@@ -1617,7 +1627,8 @@ describe("Print passthru commands", () => {
     setTimeout(() => {
       expect(mockDispatcher.uploadFile).toHaveBeenCalledWith(
         "passwd",
-        expect.any(Buffer)
+        expect.any(Buffer),
+        { overwrite: true }
       );
       expect(mockDispatcher.startPrint).toHaveBeenCalledWith("passwd");
       agent.disconnect();
@@ -2237,7 +2248,7 @@ describe("FINISHING state handling", () => {
 
             // Second message (FINISHED) must carry job context from cache
             const finishedMsg = statusMsgs[1];
-            expect(finishedMsg.status.state.flags.finishing).toBe(true);
+            expect(finishedMsg.status.state.flags.ready).toBe(true); // #144
             expect(finishedMsg.current_print_ts).toBe(-1); // Print Done signal
             expect(finishedMsg.status.job.file.name).toBe("test_0.2mm.gcode"); // from cachedJob
             expect(finishedMsg.status.job.file.path).toBe("/usb/test.gcode");
@@ -2323,7 +2334,7 @@ describe("FINISHING state handling", () => {
             // All 5 FINISHED messages (indexes 1-5) must carry cachedJob filename
             for (let i = 1; i <= 5; i++) {
               const msg = statusMsgs[i];
-              expect(msg.status.state.flags.finishing).toBe(true);
+              expect(msg.status.state.flags.ready).toBe(true); // #144
               expect(msg.current_print_ts).toBe(-1);
               expect(msg.status.job.file.name).toBe("multiconnect_0.2mm.gcode");
               expect(msg.status.job.file.path).toBe("/usb/multiconnect.gcode");
@@ -2769,7 +2780,8 @@ describe("file_downloader.download origin allowlist (#140)", () => {
     expect(reply.error).toBeUndefined();
     expect(mockDispatcher.uploadFile).toHaveBeenCalledWith(
       "a.gcode",
-      expect.any(Buffer)
+      expect.any(Buffer),
+      { overwrite: true } // #145: printing the same Obico file again
     );
   });
 
