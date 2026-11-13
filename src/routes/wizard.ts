@@ -126,7 +126,10 @@ router.post("/verify-pairing", async (req, res) => {
 
   try {
     const apiKey = await agent.waitForPairing(obicoServerUrl, code);
-    saveSetup({ ...config, obico: { serverUrl: obicoServerUrl, apiKey } });
+    saveSetup({
+      ...config,
+      obico: { ...config.obico, serverUrl: obicoServerUrl, apiKey },
+    });
     res.json({ ok: true, serverUrl: obicoServerUrl });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Pairing failed";
