@@ -1,0 +1,38 @@
+# ADR-0005: Circuit Breaker Pattern for External Component Resilience
+
+## Status
+
+Accepted
+
+## Context and Problem Statement
+
+SentryBridge depends on three external components that can be temporarily unavailable: PrusaLink (printer reboots, firmware updates), Obico WebSocket (network outages, server restarts), and the Camera (RTSP stream interruptions). Without protection, repeated failed requests would flood logs, consume resources, and prevent recovery detection. How should transient failures be managed?
+
+## Decision Drivers
+
+- Must prevent cascading failures when an external component is down.
+- Must provide fast-fail behaviour when a component is known to be down.
+- Must recover automatically when the component comes back online.
+- Dashboard must show per-component health state to the user.
+
+## Considered Options
+
+1. **Circuit Breaker pattern** — state machine (CLOSED → OPEN → HALF-OPEN) with configurable threshold and reset timeout.
+2. **Retry-only** — retry with backoff, no circuit state.
+3. **Timeout-only** — requests time out, no failure accumulation logic.
+
+## Decision Outcome
+
+Chosen: **Option 1 — Circuit Breaker pattern**, implemented in `src/lib/circuit-breaker.ts`, registered per component in `CircuitBreakerRegistry` (`src/lib/health.ts`).
+
+All three components (keys: `"prusalink"`, `"obico_ws"`, `"camera"`) have dedicated circuit breakers. Frame uploads to Obico (`POST /api/v1/octo/pic/`) have a fourth breaker, `"obico_frames"` (`src/obico/agent.ts`), so a failing upload endpoint neither hammers Obico nor trips the WebSocket breaker; when it opens, the `obico_frames` health component becomes DEGRADED, not DOWN. The Retry pattern (`src/lib/retry.ts`) is used in addition for transient errors within the CLOSED state. Backoff is deterministic (`min(base * 2^attempt, max)`, without jitter): with one container per printer there is no thundering herd to spread out, and predictable delays keep logs readable (#126).
+
+Default parameters: threshold=5 failures (`CIRCUIT_BREAKER_THRESHOLD`), reset timeout=60 s (`CIRCUIT_BREAKER_RESET_TIMEOUT_MS`, default `60000`), read in `src/lib/env-config.ts`.
+
+When the `"camera"` breaker is OPEN and refuses an MJPEG spawn, the camera schedules its next attempt for the breaker's `timeUntilHalfOpenMs` plus a 1 s margin. It relies only on that public stat, not on the order of the breaker's internal timers; the margin also bounds the retry rate if the breaker still refuses.
+
+## Consequences
+
+- **Positive:** Fast-fail after 5 consecutive failures. Automatic recovery probe after 60 s. Circuit state is visible in the dashboard health card and `GET /api/health/` endpoint.
+- **Negative:** Adds complexity to the call path. Wrong threshold tuning can cause false trips (too sensitive) or slow failure detection (too lenient).
+- **Constraint:** The `reconnectComponent()` function in `src/bridge.ts` only accepts the keys `"prusalink"`, `"obico"`, `"camera"` — the reconnect button in the dashboard maps to these keys.

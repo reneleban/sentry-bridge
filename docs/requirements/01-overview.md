@@ -20,7 +20,7 @@ SentryBridge is a standalone Docker service that connects Prusa printers (Core O
 
 ## System Context
 
-See [arc42 Chapter 3 — System Scope and Context](../architecture/03-context.md) for the context diagram and external interface summary.
+See [arc42 Chapter 3 — System Scope and Context](../architecture/03_system_scope_and_context/README.md) for the context diagram and external interface summary.
 
 ## Stakeholders
 

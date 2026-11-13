@@ -143,13 +143,13 @@ Obico's file dialog lists all USB files, newest first. PrusaLink's file list has
 ### List files on the printer
 
 ```bash
-curl http://localhost:3000/api/files/local | jq .
+curl http://localhost:3000/api/files | jq .
 ```
 
 ### Upload a G-code file
 
 ```bash
-curl -X POST http://localhost:3000/api/files/local \
+curl -X POST http://localhost:3000/api/files/upload \
   -F "file=@/path/to/your/print.gcode"
 ```
 
@@ -158,7 +158,7 @@ Maximum upload size: 200 MB.
 ### Start a print
 
 ```bash
-curl -X POST http://localhost:3000/api/files/local/print.gcode/print
+curl -X POST http://localhost:3000/api/files/print.gcode/print
 ```
 
 Replace `print.gcode` with the filename (8.3 format as returned by PrusaLink).
@@ -166,7 +166,7 @@ Replace `print.gcode` with the filename (8.3 format as returned by PrusaLink).
 ### Delete a file
 
 ```bash
-curl -X DELETE http://localhost:3000/api/files/local/print.gcode
+curl -X DELETE http://localhost:3000/api/files/print.gcode
 ```
 
 ---
